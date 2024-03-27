@@ -1,3 +1,5 @@
+#Python 3.10.10
+
 #general
 pandas==1.5.3 
 matplotlib==3.7.0
