@@ -27,7 +27,7 @@ sh -c "$(wget -q https://ftp.ncbi.nlm.nih.gov/entrez/entrezdirect/install-edirec
 fi
 
 export PATH=${HOME}/edirect:${PATH}
-export NCBI_API_KEY=e401e127b0eefb86674c5dba3a009dd26508
+export NCBI_API_KEY=xxxxxxxxxxxxxxxxxxx
 
 echo | python3 --version
 	
