@@ -1,4 +1,4 @@
--Fixed issue #3 and #4.
--updated query name for import.
--Finalized and exported PMID list to PMID_lists folder.
--**Note**: don't forget that *Query file + PMID_lists* need to be in the same folder of the environment for the code to run.
+1.Fixed issue #3 and #4.
+2.updated query name for import.
+3.Finalized and exported PMID list to PMID_lists folder.
+##**Note**: don't forget that *Query file + PMID_lists* need to be in the same folder of the environment for the code to run.
