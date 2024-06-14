@@ -1,0 +1,1 @@
+time xargs -I {} sh -c 'pmid="{}"; url="https://www.ncbi.nlm.nih.gov/research/bionlp/RESTful/pmcoa.cgi/BioC_json/PMC3619334/unicode"; curl -s "${url}" > "${pmid}.json"' < pmid10000.txt
