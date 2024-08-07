@@ -15,6 +15,7 @@ metapub==0.5.5
 pubtatortool==0.6.5
 elsapy==0.5.1  #Elsevier 
 biopython==1.82
+habanero==1.2.6
 
 #generative
 openai==0.27.8
