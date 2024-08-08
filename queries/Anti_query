@@ -1,0 +1,70 @@
+(("2000/01/01"[Date - Publication] : "3000"[Date - Publication]) 
+NOT 
+(retracted publication[Publication Type] 
+	OR meta-analysis[Publication type] 
+	OR Clinical study[Publication type] 
+	OR systematic review[Publication type] 
+	OR Review [Publication Type]
+        OR Editorial[Publication Type]
+        OR Case Reports[Publication Type]     
+)
+NOT
+(
+	(
+		(coimmunoprecipitation[All Fields] 
+			OR co-immunoprecipitation[ALL FIELDS] 
+			OR PROTEIN COMPLEX ISOLATION 
+			OR PROTEIN COMPLEX PURIFICATION 
+			OR PROTEIN COMPLEX FORMATION)
+		NOT 
+		(chromatin immunoprecipitation[All Fields] 
+			OR Cross-Linking Reagents[All fields])
+	)
+	OR
+	(
+		((affinity purification[All Fields] 
+			AND 
+			("Protein Structure, Quaternary"[MESH Terms] 
+				OR Proteomics[All Fields] 
+				OR Protein Interaction Mapping[All Fields] 
+				OR Multiprotein Complexes[All Fields] 
+				OR Multienzyme Complexes[All Fields] 
+				OR protein complex[All Fields] 
+				OR protein subunits[All Fields])) 
+			OR 
+			tandem affinity purification[All Fields])
+		NOT 
+		(chromatin immunoprecipitation[All Fields] 
+			OR Cross-Linking Reagents[All fields])
+	)
+	OR
+	(
+		(Electrophoretic Mobility Shift Assay[All Fields] 
+			OR 
+		(nucleoproteins[All Fields] 
+				AND isolation and purification[MeSH Subheading]))
+		NOT 
+		(chromatin immunoprecipitation[All Fields] 
+			OR Cross-Linking Reagents[All fields] 
+			OR Antigen-Antibody Complex[All Fields])
+	)
+	OR
+	(
+		((crystallography x ray[All Fields] 
+			OR crystallographic screen 
+			OR Cryoelectron Microscopy[All Fields]) 
+			AND 
+			("Protein Structure, Quaternary"[MESH Terms] 
+			OR Proteomics[All Fields] 
+			OR Protein Interaction Mapping[All Fields] 
+			OR Multiprotein Complexes[All Fields] 
+			OR Multienzyme Complexes[All Fields] 
+			OR protein complex[All Fields] 
+			OR protein subunits[All Fields]) 
+		)
+		NOT 
+			(chromatin immunoprecipitation[All Fields] 
+			OR Cross-Linking Reagents[All fields] 
+			OR Antigen-Antibody Complex[All Fields])
+	)
+)
