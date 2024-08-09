@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 (("2000/01/01"[Date - Publication] : "3000"[Date - Publication]) 
 NOT 
 (retracted publication[Publication Type] 
@@ -32,3 +33,39 @@ AND
 			OR Antigen-Antibody Complex[All Fields])
 	)
 )
+=======
+(("2000/01/01"[Date - Publication] : "3000"[Date - Publication]) 
+NOT 
+(retracted publication[Publication Type] 
+	OR meta-analysis[Publication type] 
+	OR Clinical study[Publication type] 
+	OR systematic review[Publication type] 
+	OR Review [Publication Type]
+        OR Editorial[Publication Type]
+        OR Case Reports[Publication Type]     
+)
+AND
+(
+	(
+		((affinity purification[All Fields] 
+			AND 
+			("Protein Structure, Quaternary"[MESH Terms] 
+				OR Proteomics[All Fields] 
+				OR Protein Interaction Mapping[All Fields] 
+				OR Multiprotein Complexes[All Fields] 
+				OR Multienzyme Complexes[All Fields] 
+				OR protein complex[All Fields] 
+				OR protein subunits[All Fields])) 
+			OR 
+			tandem affinity purification[All Fields])
+		NOT 
+		(chromatin immunoprecipitation[All Fields] 
+			OR Cross-Linking Reagents[All fields])
+	)
+	NOT 
+			(chromatin immunoprecipitation[All Fields] 
+			OR Cross-Linking Reagents[All fields] 
+			OR Antigen-Antibody Complex[All Fields])
+	)
+)
+>>>>>>> f35442987a1510f95a06039094d2c4a5280386cc
