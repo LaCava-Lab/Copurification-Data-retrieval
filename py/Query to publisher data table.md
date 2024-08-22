@@ -1,5 +1,5 @@
 ## Execution Steps
-1. Run main().py; '''python __main__.py'''
+1. Run main().py; `python __main__.py`
    
 2.	Input Data:
   - Provide email address and an NCBI API key.
