@@ -1,7 +1,7 @@
 ## Execution Steps
 1.	Input Data:
   - Provide email address and an NCBI API key.
-  - The script reads a PubMed query from file in the same directory.
+  - The script reads a PubMed "query" from file in the same directory.
   - Start and stop date.
 2.	Fetching PMIDs:
     - The script fetches PMIDs over a specified date range using the provided query.
