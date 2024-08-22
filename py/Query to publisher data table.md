@@ -10,6 +10,6 @@ o	For each PMID, the script fetches the corresponding article's metadata and sav
 4.	Adding Publisher Information:
 o	The script enhances the CSV file by adding publisher information, leveraging DOIs and ISSNs.
 5.	Saving Results:
-o	The final CSV file, enriched with publisher data, is saved, and the process is logged.
+o	The final CSV file, enriched with publisher data, is saved, and the process is logged.\n
 Usage Scenario
 This script is for researchers and data scientists who need to gather scientific article data from PubMed for analysis, literature reviews, or metadata enrichment.
