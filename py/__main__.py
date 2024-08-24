@@ -1,9 +1,4 @@
-# %%__main__
-
 def main():
-    email = input("Enter your Email:")
-    API_KEY = input("Enter your ncbi Key:")
-
     # Define the query file and dates
     query_file = "query"  # Filename containing the PubMed query
     start_date = "2000-01-01"
@@ -26,6 +21,9 @@ def main():
         logging.info("Process completed.")
     else:
         logging.error("No PMIDs were fetched. Check query or date range.")
+
+email = "m.n.khanji@umcg.nl"
+API_KEY = "70faf5cc42501a814dcc4bdb1862acaf3909"
 
 if __name__ == "__main__":
     main()
