@@ -78,24 +78,28 @@ def publisher_crossref_doi(dois, issns, uids):
     cr = Crossref(mailto=email)
     
     for doi, issn, pmid in zip(dois, issns, uids):
-        if pd.isna(doi):  # If DOI is NaN, try with ISSN
-            logging.info(f"DOI is NaN for pmid {pmid}, attempting with ISSN {issn}.")
-            publisher = get_publisher_id_from_issn(issn)
-            publishers.append(publisher)
-            continue
-        
         try:
+            if pd.isna(doi):  # Check if DOI is NaN
+                if issn:  # Check if ISSN is not empty
+                    logging.info(f"DOI is NaN for PMID {pmid}, attempting with ISSN {issn}.")
+                    publisher = get_publisher_id_from_issn(issn)
+                else:
+                    logging.info(f"Both DOI and ISSN are empty for PMID {pmid}, skipping.")
+                    publisher = None
+                publishers.append(publisher)
+                continue
+
+            # Attempt to fetch publisher from DOI
             work = cr.works(ids=doi)
-            publisher = work["message"].get("publisher")
+            publisher = work["message"].get("publisher") if work else None
             if publisher:
                 publishers.append(publisher)
             else:
-                logging.info(f"No publisher found for DOI {doi}, attempting with ISSN {issn}.")
-                publisher = get_publisher_id_from_issn(issn)
-                publishers.append(publisher)
+                raise ValueError(f"No publisher found for DOI{doi}, pmid:{pmid}")
         except Exception as e:
-            logging.error(f"API request failed for DOI {doi}: {e}, attempting with ISSN {issn}.")
-            publisher = get_publisher_id_from_issn(issn)
+            logging.error(f"Failed for DOI {doi} with error {e}; attempting with ISSN {issn} if not empty.")
+            # Fallback to ISSN if DOI fails and ISSN is not empty
+            publisher = get_publisher_id_from_issn(issn) if issn else None
             publishers.append(publisher)
     
     return publishers
@@ -143,11 +147,9 @@ def add_publishers_to_csv(input_csv: str, output_csv: str):
     # Load the CSV file
     df = pd.read_csv(input_csv)
     df = df.drop_duplicates(subset='title', keep='first')
-    dois = df['doi'].tolist()  # Assuming 'doi' is the column name for DOIs
+    dois = df['doi'].tolist() # Prepare lists to be iterated in the /publisher_crossref_doi/ function
     issns = df['issn'].tolist()
     uids = df['pmid'].tolist()
-
-
 
     # Get publishers using DOIs
     publisher_list = publisher_crossref_doi(dois, issns, uids)
@@ -159,10 +161,11 @@ def add_publishers_to_csv(input_csv: str, output_csv: str):
     # Use ISSNs to find missing publishers
     if not missing_df.empty:
         publisher_ids_from_issn = get_publisher_ids_from_issn(missing_df)
-        missing_df.loc[:, 'publisher'] = publisher_ids_from_issn
-
+        new_missing_df = missing_df.copy() #made a copy of missing_df to deal with SettingWithCopyWarning in Pandas
+        new_missing_df.loc[:, 'publisher'] = publisher_ids_from_issn #adding value to the slice of this particular copy
         # Combine the original data with the new data
-        df.update(missing_df)
+        df.update(new_missing_df)
+
 
     # Save the final DataFrame to a CSV file
     df.to_csv(output_csv, index=False)
