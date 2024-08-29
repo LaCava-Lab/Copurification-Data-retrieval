@@ -1,14 +1,8 @@
 import chat_ip as ip
 
-def main():
+def main(query_file="query", start_date="2000-01-01", stop_date="2024-08-01"):
     ip.setup_logging() #setup logging and retry with already set parameters in PY
     ip.setup_retry()
-
-    # Define the query file and dates and if U want PMC only or not(boolean)
-    query_file = "query"  # Filename containing the PubMed query
-    start_date = "2000-01-01"
-    stop_date = "2024-08-01"
-
     # Step 1: Fetch PMIDs over the specified period using a query
     pmid_array = ip.fetch_pmids_over_period(query_file, start=start_date, stop=stop_date, pmc_only=False)
 
