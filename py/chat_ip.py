@@ -75,7 +75,7 @@ def save_articles_to_csv(pmids: List[str], csv_file: str):
     """Fetch articles and save them to a CSV file."""
     with open(csv_file, "w", newline="", encoding="utf-8") as f:
         out = csv.writer(f)
-        first = True
+        working = True
         for article in fetch_articles(pmids, processes=5):
             row = dict(
                 pmid=article.pmid,
@@ -85,9 +85,9 @@ def save_articles_to_csv(pmids: List[str], csv_file: str):
                 doi=article.doi,
                 issn=article.issn
             )
-            if first:
+            if working:
                 out.writerow(row.keys())
-                first = False
+                working = False
             out.writerow(row.values())
 
 

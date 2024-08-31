@@ -2,8 +2,8 @@
 1. Run main().py; `python __main__.py`
    
 2.	Input Data:
-  - Provide email address and an NCBI API key.
-  - The script reads a PubMed "query" from file in the same directory.
+  - NCBI API key.
+  - A PubMed "query" from file in the same directory.
   - Start and stop date.
 3.	Fetching PMIDs:
     - The script fetches PMIDs over a specified date range using the provided query.
