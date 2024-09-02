@@ -13,5 +13,6 @@
     - The script enhances the CSV file by adding publisher information, leveraging DOIs and ISSNs.
 6.	Saving Results:
   - The final CSV file, enriched with publisher data, is saved, process logged in pipe.log.
+7.  Adding Column full text available via PMC after comparing with oa_noncomm filelist
 ## Usage Scenario
 This script is for researchers and data scientists who need to gather scientific article data from PubMed for analysis, literature reviews, or metadata enrichment.
