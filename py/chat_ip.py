@@ -75,7 +75,7 @@ def save_articles_to_csv(pmids: List[str], csv_file: str):
     """Fetch articles and save them to a CSV file."""
     with open(csv_file, "w", newline="", encoding="utf-8") as f:
         out = csv.writer(f)
-        working = True
+        first = True
         for article in fetch_articles(pmids, processes=5):
             row = dict(
                 pmid=article.pmid,
@@ -85,9 +85,9 @@ def save_articles_to_csv(pmids: List[str], csv_file: str):
                 doi=article.doi,
                 issn=article.issn
             )
-            if working:
+            if first:
                 out.writerow(row.keys())
-                working = False
+                first = False
             out.writerow(row.values())
 
 
@@ -101,7 +101,7 @@ def publisher_crossref_doi(dois, issns, uids, email):
             if pd.isna(doi):  # Check if DOI is NaN
                 if issn:  # Check if ISSN is not empty
                     logging.info(f"DOI is NaN for PMID {pmid}, attempting with ISSN {issn}.")
-                    publisher = get_publisher_id_from_issn(issn)
+                    publisher = get_publisher_id_from_issn(issn, email)
                 else:
                     logging.info(f"Both DOI and ISSN are empty for PMID {pmid}, skipping.")
                     publisher = None
@@ -118,7 +118,7 @@ def publisher_crossref_doi(dois, issns, uids, email):
         except Exception as e:
             logging.error(f"Failed for DOI {doi} with error {e}; attempting with ISSN {issn} if not empty.")
             # Fallback to ISSN if DOI fails and ISSN is not empty
-            publisher = get_publisher_id_from_issn(issn) if issn else None
+            publisher = get_publisher_id_from_issn(issn, email) if issn else None
             publishers.append(publisher)
     
     return publishers
@@ -130,7 +130,7 @@ def identify_missing_values(df, column_name):
     return df[missing_values]
 
 @retry_on_communication_error()
-def get_publisher_id_from_issn(issn: str) -> str:
+def get_publisher_id_from_issn(issn: str, email: str) -> str:
     """Query the CrossRef API for a single ISSN and return the publisher ID."""
     url = f"https://api.crossref.org/works?filter=issn:{issn}&select=publisher&mailto={email}"
     try:
@@ -151,12 +151,12 @@ def get_publisher_id_from_issn(issn: str) -> str:
     return None
 
 
-def get_publisher_ids_from_issn(missing_df: pd.DataFrame) -> list:
+def get_publisher_ids_from_issn(missing_df: pd.DataFrame, email: str) -> list:
     """Read ISSNs from the missing_df dataframe, query the CrossRef API, and return a list of publisher IDs."""
     issns = missing_df['issn'].tolist()
     publisher_id_list = []
     for issn in issns:
-        publisher_id = get_publisher_id_from_issn(issn)
+        publisher_id = get_publisher_id_from_issn(issn, email)
         publisher_id_list.append(publisher_id)
         time.sleep(0.4)  # Sleep to avoid hitting API rate limits
     return publisher_id_list
@@ -179,7 +179,7 @@ def add_publishers_to_csv(input_csv: str, output_csv: str, email: str):
 
     # Use ISSNs to find missing publishers
     if not missing_df.empty:
-        publisher_ids_from_issn = get_publisher_ids_from_issn(missing_df)
+        publisher_ids_from_issn = get_publisher_ids_from_issn(missing_df, email)
         new_missing_df = missing_df.copy() #made a copy of missing_df to deal with SettingWithCopyWarning in Pandas
         new_missing_df.loc[:, 'publisher'] = publisher_ids_from_issn #adding value to the slice of this particular copy
         # Combine the original data with the new data
@@ -203,7 +203,7 @@ def read_query_from_file(query_file):
         return ""
 
 @retry_on_communication_error()
-def get_list(query, pmc_only=True):
+def get_list(query, pmc_only=False):
     """Retrieve all PMIDs for a given query using the PubMedFetcher."""
     num_of_articles = 500
     start_index = 0
@@ -279,52 +279,26 @@ def save_pmids(pmid_array, directory="PMID_lists"):
     logging.info(f"PMIDs saved to binary file: {npy_file_path}")
 
 
-@retry_on_communication_error
-def fetch_pmcid(pmid):
-    try:
-        pmc = pubmedcentral.get_pmcid_for_otherid(pmid)
-        return pmc
-    except (CommunicationError, ConnectionError) as e:
-        logging.error(f"Error: API request failed for {pmid}: {e}")
-        return None
-    except Exception as e:
-        logging.error(f"Unexpected error for {pmid}: {e}")
-        return None
-
-def get_pmcid_for_otherid(pmid_clean_list):
-    PMCIDs = []
-    with ThreadPoolExecutor(max_workers=10) as executor:  # Adjust max_workers
-        future_to_pmid = {executor.submit(fetch_pmcid, pmid): pmid for pmid in pmid_clean_list}
-        for future in as_completed(future_to_pmid):
-            pmid = future_to_pmid[future]
-            try:
-                pmc = future.result()
-                PMCIDs.append(pmc)
-            except Exception as e:
-                logging.error(f"Error processing PMID {pmid}: {e}")
-                PMCIDs.append(None)
-    return PMCIDs
-
-def filter_oa_database(oa_file_list, pmc_ids_filename):
+def filter_pmc_full_text(oa_file_list, fetched_dataframe):
     """
-    Filters based on the csv database list of PMCs that are available for full_text mining and writes them  to CSV and txt.
+    Filters based on the csv database list of PMCs that are available for full_text mining and writes new column to df.
 
     Parameters:
     oa_file_list (str): Filename of the CSV containing the OA file list.
-    pmc_ids_filename (str): Filename of the CSV containing the PMC IDs.
+    fetched_dataframe (str): Filename of the CSV containing the PMC IDs.
     """
     # Read CSV files
     oa_file_list_df = pd.read_csv(oa_file_list)
-    pmc_ids_df = pd.read_csv(pmc_ids_filename)
-    # Extract PMC ID list from the DataFrame
-    pmc_id_list = pmc_ids_df.iloc[:, 0].tolist()
-    # Filter oa_database based on PMC ID list
-    filtered_oa_database = oa_file_list_df[oa_file_list_df["Accession ID"].isin(pmc_id_list)]
+    pmc_df = pd.read_csv(fetched_dataframe)
+    pmc_df['pmc'] = pmc_df['pmc'].apply(lambda x: 'PMC' + str(int(x)) if pd.notnull(x) else x)
+
+    # Check oa_database based on PMC ID list and add new column statin true or false 
+    pmc_df['full text available via PMC'] = pmc_df['pmc'].isin(oa_file_list_df["Accession ID"])
     # Open a text file to write
     with open('full_text_pmc.txt', 'w') as file:
-        for item in filtered_oa_database["Accession ID"]:
+        for item in pmc_df['full text available via PMC']:
             file.write(str(item) + '\n')
     # Save the filtered DataFrame to a new CSV file
-    filtered_oa_database.to_csv("full_text_data.csv", index=False)
+    pmc_df.to_csv("final_full_text.csv", index=False)
 
-    return filtered_oa_database
+    return pmc_df

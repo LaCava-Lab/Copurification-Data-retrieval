@@ -10,7 +10,7 @@ def main():
     stop_date = "2024-08-01"
 
     # Step 1: Fetch PMIDs over the specified period using a query
-    pmid_array = ip.fetch_pmids_over_period(query_file, start=start_date, stop=stop_date, pmc_only=False)
+    pmid_array = ip.fetch_pmids_over_period(query_file, start=start_date, stop=stop_date)
 
     # Save PMIDs if any are fetched
     if len(pmid_array) > 0:
@@ -24,8 +24,13 @@ def main():
         output_csv = 'FINAL.csv'
         ip.add_publishers_to_csv(csv_file, output_csv, email="m.n.khanji@umcg.nl")
         ip.logging.info("Process completed.")
+
+        # Step 4: add which papers are mineable via pmc with the OA database
+        oa_file_list = "oa_file_list.csv"  # OA file list CSV filename
+        filtered_df = ip.filter_pmc_full_text(oa_file_list, output_csv)
     else:
         ip.logging.error("No PMIDs were fetched. Check query or date range.")
+
 
 API_KEY = "70faf5cc42501a814dcc4bdb1862acaf3909"
 
