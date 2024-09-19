@@ -1,0 +1,1 @@
+mkdir -p ./Full_text_jsons; Get-Content full_text_pmc.txt | ForEach-Object { Invoke-RestMethod -Uri ('https://www.ncbi.nlm.nih.gov/research/bionlp/RESTful/pmcoa.cgi/BioC_json/' + $_ + '/unicode') -OutFile ('./Full_text_jsons/' + $_ + '.json') }
