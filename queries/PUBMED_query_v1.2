@@ -5,17 +5,17 @@ NOT
 	OR Clinical study[Publication type] 
 	OR systematic review[Publication type] 
 	OR Review [Publication Type]
-        OR Editorial[Publication Type]
-        OR Case Reports[Publication Type]     
+    OR Editorial[Publication Type]
+    OR Case Reports[Publication Type]     
 )
 AND
 (
 	(
 		(coimmunoprecipitation[All Fields] 
 			OR co-immunoprecipitation[ALL FIELDS] 
-			OR PROTEIN COMPLEX ISOLATION 
-			OR PROTEIN COMPLEX PURIFICATION 
-			OR PROTEIN COMPLEX FORMATION)
+			OR PROTEIN COMPLEX ISOLATION[ALL FIELDS]
+			OR PROTEIN COMPLEX PURIFICATION[ALL FIELDS] 
+			OR PROTEIN COMPLEX FORMATION[ALL FIELDS])
 		NOT 
 		(chromatin immunoprecipitation[All Fields] 
 			OR Cross-Linking Reagents[All fields])
@@ -51,7 +51,7 @@ AND
 	OR
 	(
 		((crystallography x ray[All Fields] 
-			OR crystallographic screen 
+			OR crystallographic screen[All Fields]  
 			OR Cryoelectron Microscopy[All Fields]) 
 			AND 
 			("Protein Structure, Quaternary"[MESH Terms] 
