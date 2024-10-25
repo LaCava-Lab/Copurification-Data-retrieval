@@ -220,15 +220,15 @@ def get_list(query, pmc_only=False):
     return pmids
 
 @retry_on_communication_error()
-def fetch_pmids_over_period(query_file, start="2000-01-01", stop=None):
+def fetch_pmids_over_period(query_file, start="2000-01-01", stop_date=None):
     """Fetch PMIDs over a specified period using a query read from a file."""
     query = read_query_from_file(query_file)
     if not query:
         logging.error("Failed to read query.")
         return np.array([])
 
-    if stop is None:
-        stop = datetime.now().strftime("%Y-%m-%d")
+    if stop_date is None:
+        stop_date = datetime.now().strftime("%Y-%m-%d")
 
     start_date_str = start
     pmid_list = []
@@ -255,7 +255,7 @@ def fetch_pmids_over_period(query_file, start="2000-01-01", stop=None):
         pmids = get_list(date_str + query)
         pmid_list.extend(pmids)
         start_date_str = next_start.strftime('%Y-%m-%d')
-        if next_start >= date.fromisoformat(stop):
+        if next_start >= date.fromisoformat(stop_date):
             break
 
     # Remove duplicates by converting to a set, then back to a list
