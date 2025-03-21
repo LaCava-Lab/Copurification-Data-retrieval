@@ -1,7 +1,9 @@
 # Copurification-Data-retrieval
 
 ### A. Get started
-1. Clone the repository locally and have Python (v.3.10.10 or earlier)
+*Perform the following steps only the first time, in order to be able to run the code in this repository at your computer (locally).*
+
+1. Clone the repository locally accoring to github instructions, go to Terminal (Mac OS) and and have Python installed (v.3.10.10 or earlier).
 2. Make sure you have installed virtualenv(or use any other environment or container you are comfortable with):
 
    `pip3 install --upgrade pip`
@@ -13,7 +15,7 @@
 	`python3 -m venv venvChatIP`
 	
 	`source venvChatIP/bin/activate`
-4. (only the first time) Build the environment.
+4. Build the environment.
  
 	`pip3 install --upgrade pip`
 	
