@@ -1,6 +1,43 @@
 # Copurification-Data-retrieval
 
-1. Clone the repository locally
-2. Make sure that the required packages are compatible with Python version(3.10.10 or earlier).
-3. Create the environment with necessary packages and enter a local jupyter notebook instance. Type at  Terminal (Mac OS):
-  >`./run_jupyter.sh`
+### A. Get started
+1. Clone the repository locally and have Python (v.3.10.10 or earlier)
+2. Make sure you have installed virtualenv(or use any other environment or container you are comfortable with):
+
+   `pip3 install --upgrade pip`
+   
+	`pip3 install virtualenv`
+	
+3. Create the virtualenv and activate it (skip this step and substitute with appropriate steps, if you used another solution)
+
+	`python3 -m venv venvChatIP`
+	
+	`source venvChatIP/bin/activate`
+4. (only the first time) Build the environment.
+ 
+	`pip3 install --upgrade pip`
+	
+	`pip3 install ipykernel`
+	
+	`python3 -m ipykernel install --name=venvChatIP --user`
+	
+	`brew install wget` # install  wget with brew
+	
+	`sh -c "$(wget -q https://ftp.ncbi.nlm.nih.gov/entrez/entrezdirect/install-edirect.sh -O -)"` #  install e-direct with wget
+5. Install the NCBI oa_text mining DB and move it to the right folder:
+
+	`wget https://ftp.ncbi.nlm.nih.gov/pub/pmc/oa_file_list.csv`
+	`mv oa_file_list.csv RefDocs/oa_file_list.csv`
+	
+### B. Details
+#### Folders
+
+#### Perform specific tasks
+
+Run examples of how to use the code in this repo for different tasks can be seen in the notebook `Notebooks/Examples.ipynb`. Wrappers in bash for specific pipelines coming up.
+
+| Function name | Task | Location | Dependencies | Output(s) |
+| :------------- | :---- | :-------- | :------------ | :------ |
+
+
+
