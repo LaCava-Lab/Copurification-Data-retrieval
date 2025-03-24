@@ -23,7 +23,7 @@ def read_query_from_file(filename):
         return ValueError(f"An error occurred while reading the query file: {e}")
 
 @retry_on_communication_error()
-def get_list(query):
+def get_list(query = query, pmc_only = False):
     """Retrieve all PMIDs for a given query using the PubMedFetcher."""
     num_of_articles = 500
     start_index = 0
@@ -32,7 +32,7 @@ def get_list(query):
         pmid_batch = fetcher.pmids_for_query(query,
                                             retstart=start_index,
                                             retmax=num_of_articles,
-                                            pmc_only=True)
+                                            pmc_only=pmc_only)
         pmids.extend(pmid_batch)
         start_index = len(pmids)
         if len(pmid_batch) < num_of_articles:
@@ -83,3 +83,4 @@ def fetch_pmids_over_period(query_file, start="2000-01-01", stop=None):
     logging.info(f"Total PMIDs fetched: {len(pmid_clean_list)}")
 
     return np.array(pmid_clean_list)
+
