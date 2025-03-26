@@ -40,10 +40,10 @@ Run examples of how to use the code in this repo for different tasks can be seen
 
 | Function name | Task | Location | Dependencies | Output(s) |
 | :------------- | :---- | :-------- | :------------ | :------ |
-| read_query_from_file | read a costum query from a text a certain file and return a query string variable| Location | Dependancies | query |
-| get_list | | Get a lost of hit PMIDs from the query you have | Location | Dependancies | PMIds List |
-| fetch_pmids_over_period | Fetch PMIDs over a specified period using a query |  Location | Dependancies | clean PMIDs np.array | 
-| fetch_article | Fetch a single article and return its data as a dict |  Location | Dependancies | single article data | 
-| fetch_articles_to_dataframe | Fetch a group of articles by leveraging func(fetch_article) | Location | Dependancies | Group of article data | 
-| fetch_pmcid | converts PMID to it corresponding PMCID | Location | Dependancies | PMID|
-| get_pmcid_for_otherid | converts a list of PMIDs to a list of corresponding PMCIDs in parallel using func(fetch_pmcid) multithreading | Location | Dependancies | clean PMIDs np.array |
+| read_query_from_file | read a custom query from a text a certain file and return a query string variable| Functions/DataRetrieval.py | Dependancies | query |
+| get_list | | Get a list of hit PMIDs from the query you have | Functions/DataRetrieval.py | Dependancies | PMIds List |
+| fetch_pmids_over_period | Fetch PMIDs over a specified period using a query |  Functions/DataRetrieval.py | Dependancies | clean PMIDs np.array | 
+| fetch_article | Fetch a single article and return its data as a dict |  Functions/DataRetrieval.py | Dependancies | single article data | 
+| fetch_articles_to_dataframe | Fetch a group of articles by leveraging func(fetch_article) | Functions/DataRetrieval.py | Dependancies | Group of article data | 
+| fetch_pmcid | converts PMID to it corresponding PMCID | Functions/DataRetrieval.py | Dependancies | PMID |
+| get_pmcid_for_otherid | converts a list of PMIDs to a list of corresponding PMCIDs in parallel using func(fetch_pmcid) multithreading | Functions/DataRetrieval.py | Dependancies | clean PMIDs np.array |
