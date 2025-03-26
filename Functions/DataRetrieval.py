@@ -1,6 +1,6 @@
 from functools import partial
 from tenacity import retry, stop_after_delay, wait_fixed, retry_if_exception_type
-
+from metapub import PubMedFetcher, PubMedArticle, pubmedcentral
 # Decorator 1 
 retry_on_communication_error = partial(
     retry,
@@ -8,7 +8,8 @@ retry_on_communication_error = partial(
     wait=wait_fixed(0.4),  # Wait 400ms between retries
     retry=retry_if_exception_type((Exception,))  # Use a tuple for exceptions
 )
-
+##initialize pubmedfetcher 
+fetcher = PubMedFetcher()
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Functions ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 def read_query_from_file(filename):
@@ -84,3 +85,22 @@ def fetch_pmids_over_period(query_file, start="2000-01-01", stop=None):
 
     return np.array(pmid_clean_list)
 
+@retry_on_communication_error()
+def fetch_article(pmid: str) -> Dict[str, str]:
+    """Fetch a single article and return its data as a dict."""
+    article = fetcher.article_by_pmid(pmid)
+    return {
+        "pmid": article.pmid,
+        "pmc": article.pmc,
+        "title": article.title,
+        "journal": article.journal,
+        "doi": article.doi,
+        "issn": article.issn,
+    }
+
+def fetch_articles_to_dataframe(pmids: List[str], workers: int = 5) -> pd.DataFrame:
+    """Fetch articles in parallel and return them as a DataFrame."""
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        articles_data = list(executor.map(fetch_article, pmids))
+    
+    return pd.DataFrame(articles_data)
