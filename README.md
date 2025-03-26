@@ -44,4 +44,6 @@ Run examples of how to use the code in this repo for different tasks can be seen
 | get_list | | Get a lost of hit PMIDs from the query you have | Location | Dependancies | PMIds List |
 | fetch_pmids_over_period | Fetch PMIDs over a specified period using a query |  Location | Dependancies | clean PMIDs np.array | 
 | fetch_article | Fetch a single article and return its data as a dict |  Location | Dependancies | single article data | 
-| fetch_articles_to_dataframe | Fetch a group of articles by leveraging func(fetch_article) 
+| fetch_articles_to_dataframe | Fetch a group of articles by leveraging func(fetch_article) | Location | Dependancies | Group of article data | 
+| fetch_pmcid | converts PMID to it corresponding PMCID | Location | Dependancies | PMID|
+| get_pmcid_for_otherid | converts a list of PMIDs to a list of corresponding PMCIDs in parallel using func(fetch_pmcid) multithreading | Location | Dependancies | clean PMIDs np.array |

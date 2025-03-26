@@ -11,21 +11,24 @@ tenacity
 sqlitedict
 eutils==0.6.0
 requests==2.31.0
+concurrent.futures
+multiprocessing.pool
 
 
 #article DB APIs
+habanero
 metapub
 pubtatortool==0.6.5
-elsapy==0.5.1  #Elsevier 
-biopython
+#elsapy==0.5.1  #Elsevier 
+#biopython
 habanero==1.2.6
 
 #generative
 openai==0.27.8
 huggingface-hub==0.16.4
 #wandb==0.15.8
-tiktoken
-langchain==0.0.270
+#tiktoken
+#langchain==0.0.270
 #transformers==4.33.1
 #pytorch==1.0.2
 #torch==2.0.0 

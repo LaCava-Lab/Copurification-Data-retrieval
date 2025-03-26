@@ -104,3 +104,34 @@ def fetch_articles_to_dataframe(pmids: List[str], workers: int = 5) -> pd.DataFr
         articles_data = list(executor.map(fetch_article, pmids))
     
     return pd.DataFrame(articles_data)
+
+
+
+@retry_on_communication_error
+def fetch_pmcid(pmid):
+    """converts PMID to it corresponding PMCID."""
+
+    try:
+        pmc = pubmedcentral.get_pmcid_for_otherid(pmid)
+        return pmc
+    except (CommunicationError, ConnectionError) as e:
+        logging.error(f"Error: API request failed for {pmid}: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"Unexpected error for {pmid}: {e}")
+        return None
+
+def get_pmcid_for_otherid(pmid_clean_list):
+    """converts a list of PMIDs to a list of corresponding PMCIDs in parallel using multithreading."""
+    PMCIDs = []
+    with ThreadPoolExecutor(max_workers=10) as executor:  # Adjust max_workers based on needs
+        future_to_pmid = {executor.submit(fetch_pmcid, pmid): pmid for pmid in pmid_clean_list}
+        for future in as_completed(future_to_pmid):
+            pmid = future_to_pmid[future]
+            try:
+                pmc = future.result()
+                PMCIDs.append(pmc)
+            except Exception as e:
+                logging.error(f"Error processing PMID {pmid}: {e}")
+                PMCIDs.append(None)
+    return PMCIDs
