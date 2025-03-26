@@ -11,7 +11,7 @@ tenacity
 sqlitedict
 eutils==0.6.0
 requests==2.31.0
-concurrent.futures
+futures
 multiprocessing.pool
 
 
