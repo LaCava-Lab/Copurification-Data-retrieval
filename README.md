@@ -33,6 +33,8 @@
 	`mv oa_file_list.csv RefDocs/oa_file_list.csv`
 
 **Windows VS Code** 
+e-direct is not supported on windows, download wsl2 instead
+`wsl --install` # install command in PowerShell 
 
 ### C. Details
 #### Folders
