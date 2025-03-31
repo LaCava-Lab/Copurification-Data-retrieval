@@ -7,7 +7,7 @@ venvChatIP
 #/Notebooks/.ipynb_checkpoints
 .DS_Store
 .git
-
+__init__.py
 
 ## Data files
 *.csv
