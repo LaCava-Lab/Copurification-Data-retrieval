@@ -163,4 +163,6 @@ def filter_oa_database(oa_file_list, pmc_id_list):
     oa_file_list_df = pd.read_csv(oa_file_list)
     # Filter oa_database based on PMC ID list
     filtered_oa_database = oa_file_list_df[oa_file_list_df["Accession ID"].isin(pmc_id_list)]
-    return filtered_oa_database
+    oa_pmcids = filtered_oa_database["Accession ID"]
+
+    return oa_pmcids
