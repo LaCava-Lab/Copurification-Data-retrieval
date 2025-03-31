@@ -39,6 +39,14 @@ e-direct is not supported on windows, download wsl2 instead
 ### C. Details
 #### Folders
 
+##### After cloning the repo:
+
+Create a `LOGS/` + `Reference_files/` folders and add your `keys.py` and `query`:
+   `mkdir Reference_files`
+   `touch Reference_files/keys.py`
+   `touch Reference_files/query`
+
+
 #### Perform specific tasks
 
 Run examples of how to use the code in this repo for different tasks can be seen in the notebook `Notebooks/Examples.ipynb`. Wrappers in bash for specific pipelines coming up.

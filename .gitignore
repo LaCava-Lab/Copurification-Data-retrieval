@@ -8,6 +8,20 @@ venvChatIP
 .DS_Store
 .git
 
+
+## Data files
+*.csv
+#*.txt
+*.log
+
+
+# Reference files
+Reference_files/
+
+# Logs
+LOGS/
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
