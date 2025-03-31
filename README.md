@@ -60,3 +60,4 @@ Run examples of how to use the code in this repo for different tasks can be seen
 | fetch_articles_to_dataframe | Fetch a group of articles by leveraging func(fetch_article) | Functions/DataRetrieval.py | Dependancies | Group of article data | 
 | fetch_pmcid | converts PMID to it corresponding PMCID | Functions/DataRetrieval.py | Dependancies | PMCID |
 | get_pmcid_for_otherid | converts a list of PMIDs to a list of corresponding PMCIDs in parallel using func(fetch_pmcid) multithreading | Functions/DataRetrieval.py | Dependancies | PMCIDs list |
+| filter_oa_database | filters a CSV database of PMC articles to only include IDs that are open access | Functions/DataRetrieval.py | pandas (as pd), oa_file_list.csv | Pandas Series of matching "Accession ID" values
