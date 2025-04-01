@@ -33,10 +33,14 @@
 	`wsl --install` # install command in PowerShell 
 
 
-5. Install the NCBI oa_text mining DB and move it to the right folder:
+5. Download the NCBI oa_text mining DB and move it to the right folder:
 
 	`wget https://ftp.ncbi.nlm.nih.gov/pub/pmc/oa_file_list.csv`
 	`mv oa_file_list.csv RefDocs/oa_file_list.csv`
+
+   In case of commercial use,  Download the NCBI oa_commercial_text mining DB:
+	`wget https://ftp.ncbi.nlm.nih.gov/pub/pmc/oa_comm_use_file_list.csv`
+	`mv oa_file_list.csv RefDocs/oa_comm_file_list.csv`
 
 6. ##### After cloning the repo:
 

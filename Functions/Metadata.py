@@ -43,7 +43,7 @@ def fetch_articles(pmids: List[str], *, processes: Optional[int] = None) -> Iter
             if article is not None:
                 yield article
 
-def save_articles_to_csv(pmids: List[str], csv_file: str):
+def save_articles_to_csv(pmids: List[str], csv_file: str): #### dataframe instead of csv
     """Fetch articles and save them to a CSV file."""
     with open(csv_file, "w", newline="", encoding="utf-8") as f:
         out = csv.writer(f)
@@ -129,7 +129,7 @@ def get_publisher_ids_from_issn(missing_df: pd.DataFrame, email: str) -> list:
         time.sleep(0.4)  # Sleep to avoid hitting API rate limits
     return publisher_id_list
 
-def add_publishers_to_csv(input_csv: str, output_csv: str, email: str):
+def add_publishers_to_csv(input_csv: str, output_csv: str, email: str): ### dataframe
     """Add publisher information to CSV using DOI and ISSN."""
     # Load the CSV file
     df = pd.read_csv(input_csv)
