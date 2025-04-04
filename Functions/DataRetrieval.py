@@ -40,7 +40,9 @@ def read_query_from_file(filename):
 
 @retry_on_communication_error()
 def get_list(query, full_text):
-    """Retrieve all PMIDs for a given query using the PubMedFetcher."""
+    """Retrieve all PMIDs for a given query using the PubMedFetcher.
+    query : str
+    full_text: bool"""
     num_of_articles = 500
     start_index = 0
     pmids = []
@@ -140,19 +142,24 @@ def get_pmcid_for_otherid(pmid_clean_list):
                 PMCIDs.append(None)
     return PMCIDs
 
-def filter_oa_database(oa_file_list, pmc_id_list):
+def filter_oa_database(pmc_id_list):
     """
-    Filters based on the csv database list of PMCs that are available for full_text mining.
+    Filters based on database list of PMCs that are available for full_text mining.
 
-    Parameters:
-    oa_file_list (csv): Filename of the CSV containing the OA file list.
+    Parameter:
     pmc_id_list (list): Filename of the list containing the PMC IDs.
     """
-    # Read CSV file
-    oa_file_list_df = pd.read_csv(oa_file_list)
+    # Read open access database file from NCBI server \size: ~230 mgb\
+    oa_db_url = "https://ftp.ncbi.nlm.nih.gov/pub/pmc/oa_file_list.txt"
+
+    # Read directly into pandas
+    oa_file_list_df = pd.read_csv(oa_db_url, sep="\t", header=None, 
+                    names=['File', 'Publication_info', 'PMCID', 'PMID', 'License'])
+
+    print(df.head())
     # Filter oa_database based on PMC ID list
-    filtered_oa_database = oa_file_list_df[oa_file_list_df["Accession ID"].isin(pmc_id_list)]
-    oa_pmcids = filtered_oa_database["Accession ID"]
+    filtered_oa_database = oa_file_list_df[oa_file_list_df["PMCID"].isin(pmc_id_list)]
+    oa_pmcids = filtered_oa_database["PMCID"]
 
     return oa_pmcids
 
@@ -174,7 +181,7 @@ def fetch_articles(pmids: List[str], *, processes: Optional[int] = None) -> Iter
             if article is not None:
                 yield article
 
-def save_articles_meta(pmids: List[str]) -> pd.DataFrame:
+def fetch_articles_meta(pmids: List[str]) -> pd.DataFrame:
     """Fetch articles and return them as a pandas DataFrame."""
     articles_data = []
     
@@ -262,20 +269,18 @@ def get_publisher_ids_from_issn(missing_df: pd.DataFrame, email: str) -> list:
 def process_publishers(articles_df: pd.DataFrame, email: str) -> pd.DataFrame:
     """Process publisher information and return updated DataFrame."""
     # Remove duplicates based on title
-    articles_df = articles_df.drop_duplicates(subset='title', keep='first')
-    
-    # Extract relevant columns
-    dois = articles_df['doi'].tolist()
+    articles_df = articles_df.drop_duplicates(subset='pmid', keep='first')
+
+    dois = articles_df['doi'].tolist() # Prepare lists to be iterated in the /publisher_crossref_doi/ function
     issns = articles_df['issn'].tolist()
     uids = articles_df['pmid'].tolist()
-    
     # Get publishers using DOIs
     publisher_list = publisher_crossref_doi(dois, issns, uids, email)
     articles_df.loc[:, 'publisher'] = publisher_list
     
     # Identify missing publisher values
-    missing_df = articles_df['publisher'].isnull()
-    
+    missing_df = articles_df[articles_df['publisher'].isnull()]  
+
     # Use ISSNs to find missing publishers
     if not missing_df.empty:
         publisher_ids_from_issn = get_publisher_ids_from_issn(missing_df, email)
