@@ -77,4 +77,8 @@ Run examples of how to use the code in this repo for different tasks can be seen
 | fetch_articles_to_dataframe | Fetch a group of articles by leveraging func(fetch_article) | Functions/DataRetrieval.py | Dependancies | Group of article data | 
 | fetch_pmcid | converts PMID to it corresponding PMCID | Functions/DataRetrieval.py | Dependancies | PMCID |
 | get_pmcid_for_otherid | converts a list of PMIDs to a list of corresponding PMCIDs in parallel using func(fetch_pmcid) multithreading | Functions/DataRetrieval.py | Dependancies | PMCIDs list |
-| filter_oa_database | filters a CSV database of PMC articles to only include IDs that are open access | Functions/DataRetrieval.py | pandas (as pd), oa_file_list.csv | Pandas Series of matching "Accession ID" values
+| filter_oa_database | filters a dataframe of PMC articles to only include IDs that are open access | Functions/DataRetrieval.py | pandas (as pd), oa_file_list from NCBI web | Pandas Series of matching "pmcids" |
+| publisher_crossref_doi | Fetches publishers for a list of DOIs using Crossref, fallsback to ISSN if if there is no DOI | DOIs and ISSNs, email for Xreff good conduct | Functions/DataRetrieval.py | Publisher list |
+| get_publisher_id_from_issn | Query the CrossRef API for a single ISSN and return the publisher ID | ISSNs, email for Xreff good conduct | Functions/DataRetrieval.py | Publisher list | 
+| get_publisher_ids_from_issn | Read ISSNs from the missing_df dataframe, query the CrossRef API, and return a list of publisher IDs | ISSNs, email for Xreff good conduct | Functions/DataRetrieval.py | Publisher list | 
+| process_publishers | Process publisher information and return updated DataFrame | Dataframe of paper metadata the contains DOIs and ISSNs | Functions/DataRetrieval.py | updated dataframe with publishers included | 
