@@ -2,6 +2,8 @@
 
 ### NCBI has a 10k hit cap per query, we had to make any query fetch in a X month interval to make sure the papers fetched are less than 10K per request.
 
+### queries always give duplicate unique identifiers, this is simply resolved by turning the list of yeild pmids to a set
+
 ### NCBI does not include publisher name in it's metadata, Using DOI and ISSN, we retrieved publisher data from Xreff API with *Habanero* a python wrapper for Xreff.
 
 ### To retrieve full text available for datamining, BioC, a restfull API provides full text of papers in a simple and annotated format in Json/XML and Unicode/Ascii under 3 categories:

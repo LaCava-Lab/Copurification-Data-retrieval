@@ -6,6 +6,7 @@ import requests
 import json
 import csv
 import os as os
+from tqdm import tqdm  
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 from functools import partial
@@ -59,7 +60,7 @@ def get_list(query, full_text):
 
 @retry_on_communication_error()
 def fetch_pmids_over_period(query_file, start="2000-01-01", stop_date=None, full_text=False):
-    """Fetch PMIDs over a specified period using a query read from a file."""
+    """Fetch PMIDs over a specified period."""
     query = read_query_from_file(query_file)
     if not query:
         logging.error("Failed to read query.")
@@ -68,49 +69,35 @@ def fetch_pmids_over_period(query_file, start="2000-01-01", stop_date=None, full
     if stop_date is None:
         stop_date = datetime.now().strftime("%Y-%m-%d")
 
-    start_date_str = start
+    start_date = date.fromisoformat(start)
+    stop_date = date.fromisoformat(stop_date)
     pmid_list = []
 
-    while True:
-        next_start = date.fromisoformat(start_date_str) + relativedelta(months=2)
-        end_date = (next_start - relativedelta(days=1))
-        end_date_str = end_date.strftime('%Y-%m-%d')
+    # Calculate total number of iterations (2-month chunks)
+    total_months = (stop_date.year - start_date.year) * 12 + (stop_date.month - start_date.month)
+    total_iterations = (total_months // 2) + 1  # Approximate count
 
-        date_str = f'''(("{start_date_str}"[Date - Publication] : "{end_date_str}"[Date - Publication]) '''
+    # Initialize progress bar
+    with tqdm(total=total_iterations, desc="Fetching PMIDs", mininterval=0.1) as pbar:
+        while True:
+            next_start = start_date + relativedelta(months=2)
+            end_date = next_start - relativedelta(days=1)
 
-        pmids = get_list(date_str + query, full_text=full_text) 
-        pmid_list.extend(pmids)
+            date_str = f'''(("{start_date.strftime('%Y-%m-%d')}"[Date - Publication] : "{end_date.strftime('%Y-%m-%d')}"[Date - Publication]) '''
+            pmids = get_list(date_str + query, full_text=full_text)
+            pmid_list.extend(pmids)
 
-        start_date_str = next_start.strftime('%Y-%m-%d')
-        if next_start >= date.fromisoformat(stop_date):
-            break
+            # Update progress bar
+            pbar.update(1)
+            pbar.set_postfix({"PMIDs": len(pmid_list)})
+
+            start_date = next_start
+            if next_start >= stop_date:
+                break
 
     pmid_clean_list = list(set(pmid_list))
     logging.info(f"Total PMIDs fetched: {len(pmid_clean_list)}")
-
     return np.array(pmid_clean_list)
-
-
-@retry_on_communication_error()
-def fetch_article(pmid: str) -> dict[str, str]:
-    """Fetch a single article and return its data as a dict."""
-    article = fetcher.article_by_pmid(pmid)
-    return {
-        "pmid": article.pmid,
-        "pmc": article.pmc,
-        "title": article.title,
-        "journal": article.journal,
-        "doi": article.doi,
-        "issn": article.issn,
-    }
-
-def fetch_articles_to_dataframe(pmids: list[str], workers: int = 5) -> pd.DataFrame:
-    """Fetch articles in parallel and return them as a DataFrame."""
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        articles_data = list(executor.map(fetch_article, pmids))
-    
-    return pd.DataFrame(articles_data)
-
 
 
 @retry_on_communication_error
@@ -156,7 +143,6 @@ def filter_oa_database(pmc_id_list):
     oa_file_list_df = pd.read_csv(oa_db_url, sep="\t", header=None, 
                     names=['File', 'Publication_info', 'PMCID', 'PMID', 'License'])
 
-    print(df.head())
     # Filter oa_database based on PMC ID list
     filtered_oa_database = oa_file_list_df[oa_file_list_df["PMCID"].isin(pmc_id_list)]
     oa_pmcids = filtered_oa_database["PMCID"]
@@ -165,7 +151,6 @@ def filter_oa_database(pmc_id_list):
 
 
 
-@retry_on_communication_error()
 def fetch_article(pmid: str) -> PubMedArticle:
     """Fetch a single article from PubMed by PMID."""
     article = fetcher.article_by_pmid(pmid)
@@ -175,17 +160,29 @@ def fetch_article(pmid: str) -> PubMedArticle:
 
 @retry_on_communication_error()
 def fetch_articles(pmids: List[str], *, processes: Optional[int] = None) -> Iterator[PubMedArticle]:
-    """Fetch multiple articles from PubMed in parallel using a thread pool."""
+    """Fetch multiple articles from PubMed in parallel using a thread pool with progress bar."""
     with ThreadPool(processes=processes) as pool:
-        for article in pool.imap_unordered(fetch_article, pmids):
+        # Wrap with tqdm for progress tracking
+        for article in tqdm(
+            pool.imap_unordered(fetch_article, pmids),
+            total=len(pmids),
+            desc="Fetching PubMed articles",
+            unit="article"
+        ):
             if article is not None:
                 yield article
 
 def fetch_articles_meta(pmids: List[str]) -> pd.DataFrame:
-    """Fetch articles and return them as a pandas DataFrame."""
+    """Fetch articles and return them as a pandas DataFrame with progress tracking."""
     articles_data = []
     
-    for article in fetch_articles(pmids, processes=5):
+    # Initialize progress bar for fetching articles
+    for article in tqdm(
+        fetch_articles(pmids, processes=5),
+        total=len(pmids),
+        desc="Fetching articles",
+        unit="row"
+    ):
         articles_data.append({
             'pmid': article.pmid,
             'pmc': article.pmc,
@@ -195,10 +192,7 @@ def fetch_articles_meta(pmids: List[str]) -> pd.DataFrame:
             'issn': article.issn
         })
     
-    # Create DataFrame from the collected data
-    df = pd.DataFrame(articles_data)
-    
-    return df
+    return pd.DataFrame(articles_data)
 
 def publisher_crossref_doi(dois, issns, uids, email):
     """Fetch publishers for a list of DOIs using Crossref, fallback to ISSN if DOI is None."""
