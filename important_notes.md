@@ -13,3 +13,5 @@
 
 ## Supplementary data situation:
 [This](https://www.researchgate.net/profile/Senay-Kafkas/publication/271194007_Database_citation_in_supplementary_data_linked_to_Europe_PubMed_Central_full_text_biomedical_articles/links/54c0ef260cf28a6324a45661/Database-citation-in-supplementary-data-linked-to-Europe-PubMed-Central-full-text-biomedical-articles.pdf?__cf_chl_tk=Jny2wF0BmKRwZ4ykyCCOkoFC3xeYpbcJNiNromsWGa8-1744050286-1.0.1.1-Z2uL644EuYcY05jviE2AMJuS1xubMKuoc06gzwEtguo) paper uses europePMC to download supplements 
+
+### determining on how the supplmentary data is included(zip containing, csv,pdf,docx,jpg,png)
