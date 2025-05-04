@@ -511,7 +511,7 @@ def plot_density_over_time(batch_metadata):
 
     plt.figure(figsize=(12, 6))
     plt.plot(mid_dates, densities, marker='o', linestyle='-', color='blue')
-    plt.title("PMID Density Over Time")
+    plt.title("Publication Density Over Time")
     plt.xlabel("Date")
     plt.ylabel("Papers per Day")
     plt.grid(True)
