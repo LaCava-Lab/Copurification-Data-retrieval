@@ -6,8 +6,10 @@ import requests
 import json
 import csv
 import os as os
+import urllib.parse
 from tqdm import tqdm  
-from datetime import datetime, date
+from datetime import datetime, timedelta, date
+import matplotlib.pyplot as plt
 from dateutil.relativedelta import relativedelta
 from functools import partial
 from tenacity import retry, stop_after_delay, wait_fixed, retry_if_exception_type, stop_after_attempt, wait_exponential
@@ -16,6 +18,7 @@ from multiprocessing.pool import ThreadPool
 from typing import List, Iterator, Optional
 from habanero import Crossref
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from Reference_files.keys import API_KEY as API_KEY
 
 # Decorator 1 
 retry_on_communication_error = partial(
@@ -39,68 +42,8 @@ def read_query_from_file(filename):
     except Exception as e:
         return ValueError(f"An error occurred while reading the query file: {e}")
 
-@retry_on_communication_error()
-def get_list(query, full_text):
-    """Retrieve all PMIDs for a given query using the PubMedFetcher.
-    query : str
-    full_text: bool"""
-    num_of_articles = 500
-    start_index = 0
-    pmids = []
-    while True:
-        pmid_batch = fetcher.pmids_for_query(query,
-                                            retstart=start_index,
-                                            retmax=num_of_articles,
-                                            pmc_only = full_text)
-        pmids.extend(pmid_batch)
-        start_index = len(pmids)
-        if len(pmid_batch) < num_of_articles:
-            break
-    return pmids
-
-@retry_on_communication_error()
-def fetch_pmids_over_period(query_file, start="2000-01-01", stop_date=None, full_text=False):
-    """Fetch PMIDs over a specified period."""
-    query = read_query_from_file(query_file)
-    if not query:
-        logging.error("Failed to read query.")
-        return np.array([])
-
-    if stop_date is None:
-        stop_date = datetime.now().strftime("%Y-%m-%d")
-
-    start_date = date.fromisoformat(start)
-    stop_date = date.fromisoformat(stop_date)
-    pmid_list = []
-
-    # Calculate total number of iterations (2-month chunks)
-    total_months = (stop_date.year - start_date.year) * 12 + (stop_date.month - start_date.month)
-    total_iterations = (total_months // 2) + 1  # Approximate count
-
-    # Initialize progress bar
-    with tqdm(total=total_iterations, desc="Fetching PMIDs", mininterval=0.1) as pbar:
-        while True:
-            next_start = start_date + relativedelta(months=2)
-            end_date = next_start - relativedelta(days=1)
-
-            date_str = f'''(("{start_date.strftime('%Y-%m-%d')}"[Date - Publication] : "{end_date.strftime('%Y-%m-%d')}"[Date - Publication]) '''
-            pmids = get_list(date_str + query, full_text=full_text)
-            pmid_list.extend(pmids)
-
-            # Update progress bar
-            pbar.update(1)
-            pbar.set_postfix({"PMIDs": len(pmid_list)})
-
-            start_date = next_start
-            if next_start >= stop_date:
-                break
-
-    pmid_clean_list = list(set(pmid_list))
-    logging.info(f"Total PMIDs fetched: {len(pmid_clean_list)}")
-    return np.array(pmid_clean_list)
 
 
-@retry_on_communication_error
 def fetch_pmcid(pmid):
     """converts PMID to it corresponding PMCID."""
 
@@ -180,7 +123,7 @@ def fetch_articles_meta(pmids: List[str]) -> pd.DataFrame:
     for article in tqdm(
         fetch_articles(pmids, processes=5),
         total=len(pmids),
-        desc="Fetching articles",
+        desc="Adding them",
         unit="row"
     ):
         articles_data.append({
@@ -285,3 +228,293 @@ def process_publishers(articles_df: pd.DataFrame, email: str) -> pd.DataFrame:
         articles_df.update(new_missing_df)
     
     return articles_df
+
+
+import os
+import requests
+from tqdm import tqdm
+
+def download_pmc_articles(oa_pmcids, output_dir='./Full_text_jsons'):
+    """
+    Download full-text BioC JSON articles from PubMed Central.
+    
+    Args:
+        oa_pmcids (list): List of PMCID strings to download
+        output_dir (str): Output directory for JSON files (default: './Full_text_jsons')
+    
+    Returns:
+        tuple: (success_count, failed_fulltext) where:
+            - success_count: Number of successfully downloaded articles
+            - failed_fulltext: List of PMCIDs that failed to download
+    """
+    # Create directory
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Initialize lists to track failed downloads
+    failed_fulltext = []
+
+    # Initialize progress bar
+    with tqdm(oa_pmcids, desc="Downloading articles", unit="article") as pbar:
+        for pmcid in pbar:
+            # Update description to show current PMCID
+            pbar.set_postfix_str(f"PMCID: {pmcid}")
+            
+            # 1. Download full-text BioC JSON
+            fulltext_url = f'https://www.ncbi.nlm.nih.gov/research/bionlp/RESTful/pmcoa.cgi/BioC_json/{pmcid}/unicode'
+            try:
+                response = requests.get(fulltext_url)
+                if response.status_code == 200:
+                    with open(f'{output_dir}/{pmcid}.json', 'w', encoding='utf-8') as f:
+                        f.write(response.text)
+                else:
+                    tqdm.write(f"Failed to download full-text for {pmcid} (Status: {response.status_code})")
+                    failed_fulltext.append(pmcid)
+            except Exception as e:
+                tqdm.write(f"Error downloading {pmcid}: {str(e)}")
+                failed_fulltext.append(pmcid)
+    
+    success_count = len(oa_pmcids) - len(failed_fulltext)
+    
+    # Print summary of failed downloads
+    print("\nDownload Summary:")
+    print(f"Successfully processed {success_count}/{len(oa_pmcids)} full-text files")
+    if failed_fulltext:
+        print("\nPMCIDs with full-text download failures:")
+        print(failed_fulltext)
+    
+    return success_count, failed_fulltext
+
+
+from time import sleep
+
+
+def get_pubmed_count(query, full_text=False, api_key=None):
+    url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+    db = "pmc" if full_text else "pubmed"
+    data = {
+        "db": db,
+        "term": query,
+        "retmax": 0,
+        "retmode": "json"
+    }
+    if api_key:
+        data["api_key"] = api_key
+
+    rate_limit = 10 if api_key else 3
+    delay = 1 / rate_limit
+    time.sleep(delay)  # rate limiting
+
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(url, data=data)
+            response.raise_for_status()
+            return int(response.json()['esearchresult'].get('count', 0))
+        except requests.exceptions.HTTPError as e:
+            if response.status_code == 429:
+                wait_time = 2 ** attempt
+                logging.warning(f"Rate limit hit (HTTP 429). Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+                continue
+            else:
+                raise
+        except Exception as e:
+            logging.error(f"Unexpected error in get_pubmed_count: {e}")
+            return 0
+    logging.error(f"Failed to fetch PubMed count for query: {query[:200]} after {max_retries} retries.")
+    return 0
+
+
+def get_list(query, full_text, api_key=None):
+    if api_key is None:
+        api_key = API_KEY
+    num_of_articles = 500
+    start_index = 0
+    pmids = []
+    max_retries = 5
+
+    while True:
+        for attempt in range(max_retries):
+            try:
+                pmid_batch = fetcher.pmids_for_query(
+                    query,
+                    retstart=start_index,
+                    retmax=num_of_articles,
+                    pmc_only=full_text, api_key=API_KEY
+                )
+                pmids.extend(pmid_batch)
+                start_index = len(pmids)
+                if len(pmid_batch) < num_of_articles:
+                    return pmids
+                break  # Exit retry loop if successful
+            except Exception as e:
+                wait_time = 2 ** attempt
+                logging.warning(f"Retrying fetch (attempt {attempt + 1}) in {wait_time}s due to error: {e}")
+                sleep(wait_time)
+        else:
+            logging.error(f"Failed to fetch PMIDs after {max_retries} retries for query starting at index {start_index}")
+            break
+    return pmids
+
+def read_query_from_file(file_path):
+    return "cancer[Title]"
+
+def get_fixed_month_interval(start_date):
+    if start_date <= date.fromisoformat("1828-01-01"):
+        return 564
+    elif start_date <= date.fromisoformat("1843-01-01"):
+        return 168
+    elif start_date <= date.fromisoformat("1849-01-01"):
+        return 72
+    elif start_date <= date.fromisoformat("1854-01-01"):
+        return 60
+    elif start_date <= date.fromisoformat("1859-01-01"):
+        return 59
+    elif start_date <= date.fromisoformat("1865-01-01"):
+        return 72
+    else:
+        return None
+
+
+def generate_date_batches(query, start_date, stop_date, target_papers_per_batch=10000, window_sizes=[365, 180, 90, 60, 40, 20, 10, 1], max_workers=2, verbose=True, full_text=False):
+    date_ranges = []
+    current = start_date
+    total_papers = 0
+
+    if verbose:
+        print(f"Generating date batches from {start_date} to {stop_date}...\n")
+
+    def get_count_for_window(start, days):
+        end = min(start + timedelta(days=days), stop_date)
+        q = f'("{start}"[PDat] : "{end}"[PDat]) {query}'
+        count = get_pubmed_count(q, full_text=full_text)
+        return (start, end, count)
+
+    while current < stop_date:
+        fixed_months = get_fixed_month_interval(current)
+        if fixed_months:
+            batch_end = min(current + relativedelta(months=fixed_months), stop_date)
+            count = get_pubmed_count(f'("{current}"[PDat] : "{batch_end}"[PDat]) {query}', full_text=full_text)
+            total_papers += count
+            date_ranges.append((current, batch_end))
+            current = batch_end + timedelta(days=1)
+            continue
+
+        candidates = [min(current + timedelta(days=w), stop_date) for w in window_sizes]
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(get_count_for_window, current, (end - current).days) for end in candidates]
+            results = []
+            for f in as_completed(futures):
+                try:
+                    results.append(f.result())
+                except Exception as e:
+                    logging.error(f"Error while evaluating date window: {e}")
+
+        best = None
+        for start, end, count in sorted(results, key=lambda x: (x[1] - x[0]).days, reverse=True):
+            if verbose:
+                print(f"{start} to {end} → {count} papers")
+            if count <= target_papers_per_batch:
+                best = (start, end)
+                total_papers += count
+                break
+
+        if best:
+            # Check if the batch is a single day and exceeds 10,000 papers
+            if (best[1] - best[0]).days == 0 and count > 10000:
+                logging.warning(f"1-day batch from {best[0]} contains {count} papers, exceeding the 10,000 threshold.")
+            
+            date_ranges.append(best)
+            current = best[1] + timedelta(days=1)
+        else:
+            fallback_end = min(current + timedelta(days=1), stop_date)
+            logging.warning(f"No acceptable window found at {current}, forcing fallback window.")
+            count = get_pubmed_count(f'("{current}"[PDat] : "{fallback_end}"[PDat]) {query}', full_text=full_text)
+            total_papers += count
+            date_ranges.append((current, fallback_end))
+            current = fallback_end + timedelta(days=1)
+
+    if verbose:
+        print(f"\nTotal batches generated: {len(date_ranges)}")
+        print(f"~Total papers across all batches: {total_papers}")
+
+    return date_ranges
+
+def fetch_pmids_parallel(date_batches, query, full_text, max_workers):
+    results = []
+    metadata = []
+
+    def fetch_single_batch(batch):
+        start, end = batch
+        date_query = f'("{start}"[PDat] : "{end}"[PDat])'
+        full_query = f"{date_query} {query}"
+        pmids = get_list(full_query, full_text)
+        return pmids, {"start": str(start), "end": str(end), "count": len(pmids)}
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_batch = {executor.submit(fetch_single_batch, batch): batch for batch in date_batches}
+        for future in as_completed(future_to_batch):
+            try:
+                pmids, meta = future.result()
+                results.extend(pmids)
+                metadata.append(meta)
+            except Exception as e:
+                logging.error(f"Failed to fetch PMIDs for batch: {e}")
+
+    return results, metadata
+
+def fetch_pmids_over_period(query_file, start="2000-01-01", stop=None, full_text=False, max_workers=2, plot=True):
+    query = read_query_from_file(query_file)
+    if not query:
+        logging.error("Failed to read query.")
+        return np.array([]), []
+
+    if stop is None:
+        stop = datetime.now().strftime("%Y-%m-%d")
+
+    start_date = date.fromisoformat(start)
+    stop_date = date.fromisoformat(stop)
+
+    date_batches = generate_date_batches(query, start_date, stop_date, full_text=full_text, max_workers=max_workers)
+    if plot:
+        batch_metadata_preview = [
+            {
+                "start": str(start),
+                "end": str(end),
+                "count": get_pubmed_count(f'("{start}"[PDat] : "{end}"[PDat]) {query}', full_text=full_text)
+            }
+            for start, end in date_batches
+        ]
+        plot_density_over_time(batch_metadata_preview)
+    pmid_list, batch_metadata = fetch_pmids_parallel(date_batches, query, full_text=full_text, max_workers=max_workers)
+    pmid_list = list(set(pmid_list))  # Remove duplicates
+    return np.array(pmid_list), batch_metadata
+
+
+
+
+def plot_density_over_time(batch_metadata):
+    if not batch_metadata:
+        print("No batch metadata to plot.")
+        return
+
+    mid_dates = []
+    densities = []
+
+    for meta in batch_metadata:
+        start = datetime.fromisoformat(meta["start"])
+        end = datetime.fromisoformat(meta["end"])
+        duration = (end - start).days or 1
+        mid = start + (end - start) / 2
+        mid_dates.append(mid)
+        densities.append(meta["count"] / duration)
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(mid_dates, densities, marker='o', linestyle='-', color='blue')
+    plt.title("PMID Density Over Time")
+    plt.xlabel("Date")
+    plt.ylabel("Papers per Day")
+    plt.grid(True)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
