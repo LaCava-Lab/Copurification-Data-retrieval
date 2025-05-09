@@ -127,12 +127,10 @@ def fetch_articles_meta(pmids: List[str]) -> pd.DataFrame:
         unit="row"
     ):
         articles_data.append({
-            'pmid': article.pmid,
-            'pmc': article.pmc,
-            'title': article.title,
-            'journal': article.journal,
-            'doi': article.doi,
-            'issn': article.issn
+            'PMC': article.pmc,
+            'JOURNAL': article.journal,
+            'DOI': article.doi,
+            'ISSN': article.issn
         })
     
     return pd.DataFrame(articles_data)
@@ -229,10 +227,6 @@ def process_publishers(articles_df: pd.DataFrame, email: str) -> pd.DataFrame:
     
     return articles_df
 
-
-import os
-import requests
-from tqdm import tqdm
 
 def download_pmc_articles(oa_pmcids, output_dir='./Full_text_jsons'):
     """
@@ -518,3 +512,239 @@ def plot_density_over_time(batch_metadata):
     plt.xticks(rotation=45)
     plt.tight_layout()
     plt.show()
+
+
+
+
+
+
+
+def format_author_name(author_str: str) -> str:
+    """Convert 'surname:surname;given-names:firstname' to 'firstname surname'."""
+    parts = author_str.split(';')
+    surname = ""
+    given_names = ""
+    
+    for part in parts:
+        if part.startswith('surname:'):
+            surname = part.replace('surname:', '').strip()
+        elif part.startswith('given-names:'):
+            given_names = part.replace('given-names:', '').strip()
+    
+    return f"{given_names} {surname}" if given_names and surname else author_str
+
+def extract_text_from_json_to_dataframe(directory: str, section_types: List[str]) -> pd.DataFrame:
+    """
+    Extracts content from JSON files with formatted author names and subtitle types.
+    
+    Args:
+        directory: Path to directory containing JSON files
+        section_types: List of section types to extract (e.g., ['ABSTRACT', 'INTRO'])
+    
+    Returns:
+        DataFrame with columns: filename, section_type, text, subtitle
+    """
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    logger.info(f"Extracting from JSON files in {directory}")
+
+    data_rows = []
+    processed_files = 0
+    error_files = 0
+
+    for filename in os.listdir(directory):
+        if not filename.endswith(".json"):
+            continue
+
+        filepath = os.path.join(directory, filename)
+        base_filename = os.path.splitext(filename)[0]
+        
+        try:
+            with open(filepath, 'r', encoding='utf-8') as file:
+                try:
+                    data = json.load(file)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid JSON in {filename}: {str(e)}")
+                    error_files += 1
+                    continue
+
+                try:
+                    documents = data[0].get('documents', [])
+                    if not documents:
+                        logger.warning(f"No documents in {filename}")
+                        continue
+
+                    passages = documents[0].get('passages', [])
+                    if not passages:
+                        logger.warning(f"No passages in {filename}")
+                        continue
+
+                    # Extract metadata from first passage
+                    first_passage = passages[0]
+                    first_infons = first_passage.get('infons', {})
+
+                    
+                    # Add PMID
+                    if "article-id_pmid" in first_infons:
+                        data_rows.append({
+                            "filename": base_filename,
+                            "section_type": "PMID",
+                            "subtitle": None,
+                            "text": first_infons['article-id_pmid']
+                        })
+
+
+                    # Add DOI
+                    if 'article-id_doi' in first_infons:
+                        data_rows.append({
+                            "filename": base_filename,
+                            "section_type": "DOI",
+                            "subtitle": None,
+                            "text": first_infons['article-id_doi']
+                        })
+
+                    # Add Year
+                    if 'year' in first_infons:
+                        data_rows.append({
+                            "filename": base_filename,
+                            "section_type": "YEAR",
+                            "subtitle": None,
+                            "text": first_infons['year']
+                        })
+
+                    # Add issue
+                    if 'issue' in first_infons:
+                        data_rows.append({
+                            "filename": base_filename,
+                            "section_type": "ISSUE",
+                            "subtitle": None,
+                            "text": first_infons['issue']
+                        })
+
+                    # Add Volume
+                    if 'volume' in first_infons:
+                        data_rows.append({
+                            "filename": base_filename,
+                            "section_type": "VOLUME",
+                            "subtitle": None,
+                            "text": first_infons['volume']
+                        })
+
+                    # Add formatted authors
+                    i = 0
+                    while f'name_{i}' in first_infons:
+                        original_name = first_infons[f'name_{i}']
+                        formatted_name = format_author_name(original_name)
+                        data_rows.append({
+                            "filename": base_filename,
+                            "section_type": "AUTHOR",
+                            "subtitle": None,
+                            "text": formatted_name,
+                        })
+                        i += 1
+
+                    # Add requested sections with subtitle
+                    for passage in passages:
+                        infons = passage.get('infons', {})
+                        current_section = infons.get('section_type')
+                        subtitle = infons.get('type')
+                        
+                        if current_section in section_types:
+                            text = passage.get('text', '').strip()
+                            if text:
+                                data_rows.append({
+                                    "filename": base_filename,
+                                    "section_type": current_section,
+                                    "subtitle": subtitle,
+                                    "text": text
+                                })
+
+                    processed_files += 1
+
+                except Exception as e:
+                    logger.error(f"Error processing {filename}: {str(e)}")
+                    error_files += 1
+
+        except IOError as e:
+            logger.error(f"Error reading {filename}: {str(e)}")
+            error_files += 1
+
+    # Create DataFrame
+    df = pd.DataFrame(data_rows)
+    
+    # Log summary
+    logger.info(f"Processed {processed_files} files, {error_files} errors")
+    logger.info(f"Extracted {len(df)} entries")    
+    return df
+
+
+
+
+
+
+def add_metadata_to_dataframe(df):
+    """
+    Adds PubMed metadata to a dataframe.
+    
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        Input dataframe containing columns: filename, section_type, subtitle, text
+    Returns:
+    --------
+    pd.DataFrame
+        New dataframe with metadata inserted before each document's first occurrence
+    """
+    
+    # 1. Create filename metadata map
+    file_meta = {}
+    for idx, row in df.iterrows():
+        filename = row['filename']
+        if filename not in file_meta:
+            file_meta[filename] = {
+                'pmid': row['text'] if row['section_type'] == 'PMID' else None,
+                'first_idx': idx
+            }
+    
+    # 2. Fetch metadata for each document
+    metadata = {}
+    for filename, info in tqdm(file_meta.items(), desc='Fetching metadata'):
+        if not info['pmid']:
+            continue
+            
+        try:
+            meta_df = fetch_articles_meta([info['pmid']])
+            if not meta_df.empty:
+                metadata[filename] = [
+                    {
+                        'filename': filename,
+                        'section_type': field,
+                        'subtitle': None,
+                        'text': str(value)
+                    }
+                    for _, record in meta_df.iterrows()
+                    for field, value in record.items()
+                ]
+        except Exception as e:
+            print(f'Metadata error for {filename}: {str(e)[:100]}...')
+    
+    # 3. Reconstruct dataframe with inserted metadata
+    new_rows = []
+    processed_files = set()
+    
+    for idx, row in df.iterrows():
+        filename = row['filename']
+        
+        # Insert metadata before first occurrence
+        if filename not in processed_files:
+            processed_files.add(filename)
+            if filename in metadata:
+                new_rows.extend(metadata[filename])
+        
+        # Add original row
+        new_rows.append(row.to_dict())
+    
+    # 4. Return new dataframe
+    result_df = pd.DataFrame(new_rows)
+    
+    return result_df
