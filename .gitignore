@@ -1,3 +1,27 @@
+#Custom
+RefDocs/*
+Results/*
+venvChatIP
+*/__pycache__
+.ipynb_checkpoints
+#/Notebooks/.ipynb_checkpoints
+.DS_Store
+.git
+__init__.py
+
+## Data files
+*.csv
+#*.txt
+*.log
+
+
+# Reference files
+Reference_files/
+
+# Logs
+LOGS/
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -56,7 +80,7 @@ cover/
 *.pot
 
 # Django stuff:
-*.log
+.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
