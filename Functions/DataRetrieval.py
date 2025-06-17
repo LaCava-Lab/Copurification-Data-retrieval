@@ -19,7 +19,7 @@ from typing import List, Iterator, Optional
 from habanero import Crossref
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from Reference_files.keys import API_KEY as API_KEY
-
+import xml.etree.ElementTree as ET
 # Decorator 1 
 retry_on_communication_error = partial(
     retry,
@@ -88,9 +88,10 @@ def filter_oa_database(pmc_id_list):
 
     # Filter oa_database based on PMC ID list
     filtered_oa_database = oa_file_list_df[oa_file_list_df["PMCID"].isin(pmc_id_list)]
-    oa_pmcids = filtered_oa_database["PMCID"]
+    
+    # Return specified columns
+    return filtered_oa_database[['PMID', 'PMCID', 'Publication_info']]
 
-    return oa_pmcids
 
 
 
@@ -127,13 +128,22 @@ def fetch_articles_meta(pmids: List[str]) -> pd.DataFrame:
         unit="row"
     ):
         articles_data.append({
-            'PMC': article.pmc,
-            'JOURNAL': article.journal,
+            'PMID': article.pmid,
+            'PMCID': article.pmc,
             'DOI': article.doi,
-            'ISSN': article.issn
+            'Title': article.title,
+            'Authors': ', '.join(article.authors),
+            'Year': article.year,
+            'Journal': article.journal,
+            'Volume': article.volume,
+            'Issue': article.issue,
+            'Pages': article.pages,
+            'Abstract': article.abstract,
         })
-    
-    return pd.DataFrame(articles_data)
+
+    df = pd.DataFrame(articles_data)
+    df['PMCID'] = df['PMCID'].apply(lambda x: f"PMC{x}" if pd.notnull(x) else x)
+    return df
 
 def publisher_crossref_doi(dois, issns, uids, email):
     """Fetch publishers for a list of DOIs using Crossref, fallback to ISSN if DOI is None."""
@@ -748,3 +758,175 @@ def add_metadata_to_dataframe(df):
     result_df = pd.DataFrame(new_rows)
     
     return result_df
+
+##### Download Sypplemantary XML files from BioC API #####
+
+def download_supplementary_materials(oa_pmcids, output_dir="supplementary_materials", format="bioc_xml", delay=1.0):
+    """
+    Downloads all supplementary materials for a list of PMCIDs using the NCBI BioC Supplementary Materials API.
+
+    Parameters:
+        oa_pmcids (list): List of PMCIDs (e.g., ['PMC1234567', 'PMC2345678']).
+        output_dir (str): Directory to save the downloaded supplementary materials.
+        format (str): Format of the supplementary materials ('bioc_xml' or 'bioc_json').
+        delay (float): Delay in seconds between requests to respect NCBI's rate limits.
+
+    Returns:
+        list: List of PMCIDs that had no supplementary materials or failed to download.
+    """
+    base_url = "https://www.ncbi.nlm.nih.gov/research/bionlp/RESTful/supplmat.cgi"
+    os.makedirs(output_dir, exist_ok=True)
+
+    unsaved_pmcs = []
+
+    for pmcid in oa_pmcids:
+        url = f"{base_url}/{format}/{pmcid}/all"
+        print(f"Downloading supplementary materials for {pmcid} from {url}")
+
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+        except requests.RequestException as e:
+            print(f"Failed to download supplementary materials for {pmcid}: {e}")
+            unsaved_pmcs.append(pmcid)
+            continue
+
+        content_text = response.text.strip()
+        if "No result can be found" in content_text:
+            print(f"No supplementary materials found for {pmcid}. Skipping save.")
+            unsaved_pmcs.append(pmcid)
+        else:
+            file_extension = "xml" if format == "bioc_xml" else "json"
+            file_path = os.path.join(output_dir, f"{pmcid}.{file_extension}")
+            with open(file_path, "wb") as file:
+                file.write(response.content)
+            print(f"Saved supplementary materials for {pmcid} to {file_path}")
+
+        sleep(delay)
+
+    print(f"\nSummary: {len(oa_pmcids)} total PMCIDs processed.")
+    print(f"{len(unsaved_pmcs)} had no supplementary materials or failed to download.")
+    print(f"{len(oa_pmcids) - len(unsaved_pmcs)} successfully saved.")
+
+    return unsaved_pmcs
+
+
+#############  full_text creat + add xml of supplementary but u need to download supplementary yourself  #############
+
+def extract_text_from_bioc_xml(xml_path):
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+
+    records = []
+    filename = os.path.basename(xml_path)
+    for doc in root.findall(".//document"):
+        document_id = doc.find("id").text if doc.find("id") is not None else None
+        passages = doc.findall("passage")
+
+        for passage in passages:
+            passage_text = passage.findtext("text", default="")
+            infons = {infon.attrib["key"]: infon.text for infon in passage.findall("infon")}
+            record = {
+                "filename": filename,
+                "source": infons.get("source", None),
+                "document_id": document_id,
+                "type": infons.get("type", None),
+                "text": passage_text.strip()
+            }
+            records.append(record)
+
+    return pd.DataFrame(records)
+
+def extract_text_from_json_to_dataframe(directory: str, section_types: List[str], xml_directory: str = None) -> pd.DataFrame:
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    logger.info(f"Extracting from JSON files in {directory}")
+
+    data_rows = []
+    processed_files = 0
+    error_files = 0
+
+    for filename in os.listdir(directory):
+        if not filename.endswith(".json"):
+            continue
+
+        filepath = os.path.join(directory, filename)
+        base_filename = os.path.splitext(filename)[0]
+
+        try:
+            with open(filepath, 'r', encoding='utf-8') as file:
+                try:
+                    data = json.load(file)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid JSON in {filename}: {str(e)}")
+                    error_files += 1
+                    continue
+
+                try:
+                    documents = data[0].get('documents', [])
+                    if not documents:
+                        logger.warning(f"No documents in {filename}")
+                        continue
+
+                    passages = documents[0].get('passages', [])
+                    if not passages:
+                        logger.warning(f"No passages in {filename}")
+                        continue
+
+                    first_passage = passages[0]
+                    first_infons = first_passage.get('infons', {})
+
+                    pmid = first_infons.get("article-id_pmid", "NOPMID")
+                    entry_counter = 0
+                    order_counter = 1
+                    
+                    # Sections
+                    for passage in passages:
+                        infons = passage.get('infons', {})
+                        current_section = infons.get('section_type')
+                        subtitle = infons.get('type')
+                        if current_section in section_types:
+                            text = passage.get('text', '').strip()
+                            if text:
+                                data_rows.append({
+                                    "EntryID": f"{pmid}_{entry_counter:03}",
+                                    "section_type": current_section,
+                                    "subtitle": subtitle,
+                                    "text": text,
+                                    "Order": order_counter
+                                })
+                                entry_counter += 1
+                                order_counter += 1
+
+                    # Supplementary from XML (if available)
+                    if xml_directory:
+                        xml_path = os.path.join(xml_directory, base_filename + ".xml")
+                        if os.path.isfile(xml_path):
+                            xml_df = extract_text_from_bioc_xml(xml_path)
+                            for _, row in xml_df.iterrows():
+                                text = row['text']
+                                if text:
+                                    data_rows.append({
+                                        "EntryID": f"{pmid}_{entry_counter:03}",
+                                        "section_type": "SUPPLEMENT",
+                                        "subtitle": row.get('type', None),
+                                        "text": text,
+                                        "Order": order_counter
+                                    })
+                                    entry_counter += 1
+                                    order_counter += 1
+
+                    processed_files += 1
+
+                except Exception as e:
+                    logger.error(f"Error processing {filename}: {str(e)}")
+                    error_files += 1
+
+        except IOError as e:
+            logger.error(f"Error reading {filename}: {str(e)}")
+            error_files += 1
+
+    df = pd.DataFrame(data_rows)
+    logger.info(f"Processed {processed_files} files, {error_files} errors")
+    logger.info(f"Extracted {len(df)} entries")
+    return df
