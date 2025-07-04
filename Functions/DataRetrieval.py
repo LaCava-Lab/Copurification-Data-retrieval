@@ -7,6 +7,7 @@ import json
 import csv
 import os as os
 import urllib.parse
+from time import sleep
 from tqdm import tqdm  
 from datetime import datetime, timedelta, date
 import matplotlib.pyplot as plt
@@ -18,7 +19,9 @@ from multiprocessing.pool import ThreadPool
 from typing import List, Iterator, Optional
 from habanero import Crossref
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from Reference_files.keys import API_KEY as API_KEY
+from Reference_files.keys import API_KEY as api_key
+import xml.etree.ElementTree as ET
+from matplotlib.ticker import FuncFormatter
 
 # Decorator 1 
 retry_on_communication_error = partial(
@@ -88,9 +91,10 @@ def filter_oa_database(pmc_id_list):
 
     # Filter oa_database based on PMC ID list
     filtered_oa_database = oa_file_list_df[oa_file_list_df["PMCID"].isin(pmc_id_list)]
-    oa_pmcids = filtered_oa_database["PMCID"]
+    
+    # Return specified columns
+    return filtered_oa_database[['PMID', 'PMCID', 'Publication_info']]
 
-    return oa_pmcids
 
 
 
@@ -127,13 +131,22 @@ def fetch_articles_meta(pmids: List[str]) -> pd.DataFrame:
         unit="row"
     ):
         articles_data.append({
-            'PMC': article.pmc,
-            'JOURNAL': article.journal,
+            'PMID': article.pmid,
+            'PMCID': article.pmc,
             'DOI': article.doi,
-            'ISSN': article.issn
+            'Title': article.title,
+            'Authors': ', '.join(article.authors),
+            'Year': article.year,
+            'Journal': article.journal,
+            'Volume': article.volume,
+            'Issue': article.issue,
+            'Pages': article.pages,
+            'Abstract': article.abstract,
         })
-    
-    return pd.DataFrame(articles_data)
+
+    df = pd.DataFrame(articles_data)
+    df['PMCID'] = df['PMCID'].apply(lambda x: f"PMC{x}" if pd.notnull(x) else x)
+    return df
 
 def publisher_crossref_doi(dois, issns, uids, email):
     """Fetch publishers for a list of DOIs using Crossref, fallback to ISSN if DOI is None."""
@@ -279,10 +292,8 @@ def download_pmc_articles(oa_pmcids, output_dir='./Full_text_jsons'):
     return success_count, failed_fulltext
 
 
-from time import sleep
 
-
-def get_pubmed_count(query, full_text=False, api_key=None):
+def get_pubmed_count(query, full_text=False, api_key=api_key):
     url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     db = "pmc" if full_text else "pubmed"
     data = {
@@ -294,10 +305,8 @@ def get_pubmed_count(query, full_text=False, api_key=None):
     if api_key:
         data["api_key"] = api_key
 
-    rate_limit = 10 if api_key else 3
-    delay = 1 / rate_limit
+    delay = 1.1
     time.sleep(delay)  # rate limiting
-
     max_retries = 5
     for attempt in range(max_retries):
         try:
@@ -306,8 +315,8 @@ def get_pubmed_count(query, full_text=False, api_key=None):
             return int(response.json()['esearchresult'].get('count', 0))
         except requests.exceptions.HTTPError as e:
             if response.status_code == 429:
-                wait_time = 2 ** attempt
-                logging.warning(f"Rate limit hit (HTTP 429). Retrying in {wait_time}s...")
+                wait_time = 1 ** attempt
+                logging.warning(f"Rate limit hit (HTTP 429). Make sure you added your api_key to the environment. Retrying in {wait_time}s...")
                 time.sleep(wait_time)
                 continue
             else:
@@ -319,9 +328,9 @@ def get_pubmed_count(query, full_text=False, api_key=None):
     return 0
 
 
-def get_list(query, full_text, api_key=None):
+def get_list(query, full_text, api_key=api_key):
     if api_key is None:
-        api_key = API_KEY
+        api_key = api_key
     num_of_articles = 500
     start_index = 0
     pmids = []
@@ -334,7 +343,7 @@ def get_list(query, full_text, api_key=None):
                     query,
                     retstart=start_index,
                     retmax=num_of_articles,
-                    pmc_only=full_text, api_key=API_KEY
+                    pmc_only=full_text, api_key=api_key
                 )
                 pmids.extend(pmid_batch)
                 start_index = len(pmids)
@@ -370,7 +379,7 @@ def get_fixed_month_interval(start_date):
         return None
 
 
-def generate_date_batches(query, start_date, stop_date, target_papers_per_batch=10000, window_sizes=[365, 180, 90, 60, 40, 20, 10, 1], max_workers=2, verbose=True, full_text=False):
+def generate_date_batches(query, start_date, stop_date, target_papers_per_batch=10000, window_sizes=[365, 180, 90, 60, 40, 20, 10, 1], max_workers = 1,  verbose=True, full_text=False):
     date_ranges = []
     current = start_date
     total_papers = 0
@@ -457,6 +466,43 @@ def fetch_pmids_parallel(date_batches, query, full_text, max_workers):
 
     return results, metadata
 
+def plot_density_over_time(metadata):
+    """Visualize counts as line chart using metadata from fetch_pmids_parallel."""
+    df = pd.DataFrame(metadata)
+    df['start'] = pd.to_datetime(df['start'])
+    df['end'] = pd.to_datetime(df['end'])
+    df['Midpoint'] = df['start'] + (df['end'] - df['start'])/2
+    df['Label'] = df['start'].dt.strftime('%Y-%m-%d') + '\nto\n' + df['end'].dt.strftime('%Y-%m-%d')
+    df = df.sort_values('Midpoint')
+    
+    plt.figure(figsize=(12, 6))
+    line, = plt.plot(df['Midpoint'], df['count'], 
+                    marker='o', 
+                    linestyle='-', 
+                    color='steelblue',
+                    linewidth=2,
+                    markersize=8)
+    
+    for x, y, label in zip(df['Midpoint'], df['count'], df['Label']):
+        plt.text(x, y, f'{int(y):,}', 
+                ha='center', 
+                va='bottom',
+                bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
+    
+    plt.title("Paper Counts Over Time", pad=20)
+    plt.xlabel("Date Range", labelpad=10)
+    plt.ylabel("Number of Papers", labelpad=10)
+    
+    plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{int(x):,}'))
+    plt.grid(True, which='both', linestyle='--', alpha=0.4)
+    
+    ax = plt.gca()
+    ax.set_xticks(df['Midpoint'])
+    ax.set_xticklabels(df['Label'], rotation=45, ha='right')
+    
+    plt.tight_layout()
+    plt.show()
+
 def fetch_pmids_over_period(query_file, start="2000-01-01", stop=None, full_text=False, max_workers=2, plot=True):
     query = read_query_from_file(query_file)
     if not query:
@@ -470,48 +516,14 @@ def fetch_pmids_over_period(query_file, start="2000-01-01", stop=None, full_text
     stop_date = date.fromisoformat(stop)
 
     date_batches = generate_date_batches(query, start_date, stop_date, full_text=full_text, max_workers=max_workers)
-    if plot:
-        batch_metadata_preview = [
-            {
-                "start": str(start),
-                "end": str(end),
-                "count": get_pubmed_count(f'("{start}"[PDat] : "{end}"[PDat]) {query}', full_text=full_text)
-            }
-            for start, end in date_batches
-        ]
-        plot_density_over_time(batch_metadata_preview)
-    pmid_list, batch_metadata = fetch_pmids_parallel(date_batches, query, full_text=full_text, max_workers=max_workers)
-    pmid_list = list(set(pmid_list))  # Remove duplicates
-    return np.array(pmid_list), batch_metadata
 
-
-
-
-def plot_density_over_time(batch_metadata):
-    if not batch_metadata:
-        print("No batch metadata to plot.")
-        return
-
-    mid_dates = []
-    densities = []
-
-    for meta in batch_metadata:
-        start = datetime.fromisoformat(meta["start"])
-        end = datetime.fromisoformat(meta["end"])
-        duration = (end - start).days or 1
-        mid = start + (end - start) / 2
-        mid_dates.append(mid)
-        densities.append(meta["count"] / duration)
-
-    plt.figure(figsize=(12, 6))
-    plt.plot(mid_dates, densities, marker='o', linestyle='-', color='blue')
-    plt.title("Publication Density Over Time")
-    plt.xlabel("Date")
-    plt.ylabel("Papers per Day")
-    plt.grid(True)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.show()
+    pmid_list, batch_metadata = fetch_pmids_parallel(
+        date_batches, query, full_text=full_text, max_workers=max_workers
+    )
+    plot_density_over_time(batch_metadata)
+    pmid_list = list(set(pmid_list))  #Remove duplicates/the count that will be printed from batches before getting the pmids distinct list will be higher bcs of the duplicates
+     
+    return pmid_list, batch_metadata
 
 
 
@@ -748,3 +760,175 @@ def add_metadata_to_dataframe(df):
     result_df = pd.DataFrame(new_rows)
     
     return result_df
+
+##### Download Sypplemantary XML files from BioC API #####
+
+def download_supplementary_materials(oa_pmcids, output_dir="supplementary_materials", format="bioc_xml", delay=1.0):
+    """
+    Downloads all supplementary materials for a list of PMCIDs using the NCBI BioC Supplementary Materials API.
+
+    Parameters:
+        oa_pmcids (list): List of PMCIDs (e.g., ['PMC1234567', 'PMC2345678']).
+        output_dir (str): Directory to save the downloaded supplementary materials.
+        format (str): Format of the supplementary materials ('bioc_xml' or 'bioc_json').
+        delay (float): Delay in seconds between requests to respect NCBI's rate limits.
+
+    Returns:
+        list: List of PMCIDs that had no supplementary materials or failed to download.
+    """
+    base_url = "https://www.ncbi.nlm.nih.gov/research/bionlp/RESTful/supplmat.cgi"
+    os.makedirs(output_dir, exist_ok=True)
+
+    unsaved_pmcs = []
+
+    for pmcid in oa_pmcids:
+        url = f"{base_url}/{format}/{pmcid}/all"
+        print(f"Downloading supplementary materials for {pmcid} from {url}")
+
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+        except requests.RequestException as e:
+            print(f"Failed to download supplementary materials for {pmcid}: {e}")
+            unsaved_pmcs.append(pmcid)
+            continue
+
+        content_text = response.text.strip()
+        if "No result can be found" in content_text:
+            print(f"No supplementary materials found for {pmcid}. Skipping save.")
+            unsaved_pmcs.append(pmcid)
+        else:
+            file_extension = "xml" if format == "bioc_xml" else "json"
+            file_path = os.path.join(output_dir, f"{pmcid}.{file_extension}")
+            with open(file_path, "wb") as file:
+                file.write(response.content)
+            print(f"Saved supplementary materials for {pmcid} to {file_path}")
+
+        sleep(delay)
+
+    print(f"\nSummary: {len(oa_pmcids)} total PMCIDs processed.")
+    print(f"{len(unsaved_pmcs)} had no supplementary materials or failed to download.")
+    print(f"{len(oa_pmcids) - len(unsaved_pmcs)} successfully saved.")
+
+    return unsaved_pmcs
+
+
+#############  full_text creat + add xml of supplementary but u need to download supplementary yourself  #############
+
+def extract_text_from_bioc_xml(xml_path):
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+
+    records = []
+    filename = os.path.basename(xml_path)
+    for doc in root.findall(".//document"):
+        document_id = doc.find("id").text if doc.find("id") is not None else None
+        passages = doc.findall("passage")
+
+        for passage in passages:
+            passage_text = passage.findtext("text", default="")
+            infons = {infon.attrib["key"]: infon.text for infon in passage.findall("infon")}
+            record = {
+                "filename": filename,
+                "source": infons.get("source", None),
+                "document_id": document_id,
+                "type": infons.get("type", None),
+                "text": passage_text.strip()
+            }
+            records.append(record)
+
+    return pd.DataFrame(records)
+
+def extract_text_from_json_to_dataframe(directory: str, section_types: List[str], xml_directory: str = None) -> pd.DataFrame:
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    logger.info(f"Extracting from JSON files in {directory}")
+
+    data_rows = []
+    processed_files = 0
+    error_files = 0
+
+    for filename in os.listdir(directory):
+        if not filename.endswith(".json"):
+            continue
+
+        filepath = os.path.join(directory, filename)
+        base_filename = os.path.splitext(filename)[0]
+
+        try:
+            with open(filepath, 'r', encoding='utf-8') as file:
+                try:
+                    data = json.load(file)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid JSON in {filename}: {str(e)}")
+                    error_files += 1
+                    continue
+
+                try:
+                    documents = data[0].get('documents', [])
+                    if not documents:
+                        logger.warning(f"No documents in {filename}")
+                        continue
+
+                    passages = documents[0].get('passages', [])
+                    if not passages:
+                        logger.warning(f"No passages in {filename}")
+                        continue
+
+                    first_passage = passages[0]
+                    first_infons = first_passage.get('infons', {})
+
+                    pmid = first_infons.get("article-id_pmid", "NOPMID")
+                    entry_counter = 0
+                    order_counter = 1
+                    
+                    # Sections
+                    for passage in passages:
+                        infons = passage.get('infons', {})
+                        current_section = infons.get('section_type')
+                        subtitle = infons.get('type')
+                        if current_section in section_types:
+                            text = passage.get('text', '').strip()
+                            if text:
+                                data_rows.append({
+                                    "EntryID": f"{pmid}_{entry_counter:03}",
+                                    "section_type": current_section,
+                                    "subtitle": subtitle,
+                                    "text": text,
+                                    "Order": order_counter
+                                })
+                                entry_counter += 1
+                                order_counter += 1
+
+                    # Supplementary from XML (if available)
+                    if xml_directory:
+                        xml_path = os.path.join(xml_directory, base_filename + ".xml")
+                        if os.path.isfile(xml_path):
+                            xml_df = extract_text_from_bioc_xml(xml_path)
+                            for _, row in xml_df.iterrows():
+                                text = row['text']
+                                if text:
+                                    data_rows.append({
+                                        "EntryID": f"{pmid}_{entry_counter:03}",
+                                        "section_type": "SUPPLEMENT",
+                                        "subtitle": row.get('type', None),
+                                        "text": text,
+                                        "Order": order_counter
+                                    })
+                                    entry_counter += 1
+                                    order_counter += 1
+
+                    processed_files += 1
+
+                except Exception as e:
+                    logger.error(f"Error processing {filename}: {str(e)}")
+                    error_files += 1
+
+        except IOError as e:
+            logger.error(f"Error reading {filename}: {str(e)}")
+            error_files += 1
+
+    df = pd.DataFrame(data_rows)
+    logger.info(f"Processed {processed_files} files, {error_files} errors")
+    logger.info(f"Extracted {len(df)} entries")
+    return df

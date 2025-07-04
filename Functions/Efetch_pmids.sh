@@ -1,0 +1,1 @@
+esearch -db pubmed -query "$(cat query.txt)" | efetch -format uilist > pmid_list.txt

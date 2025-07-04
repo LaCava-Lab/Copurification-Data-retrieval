@@ -3,7 +3,7 @@
 ### A. Get started 
 *Perform the following steps only the first time, in order to be able to run the code in this repository at your computer (locally).*
 
-**Mac OS**
+
 1. Clone the repository locally accoring to github instructions, go to Terminal (Mac OS) and and have Python installed (v.3.10.10 or earlier).
 2. Make sure you have installed virtualenv(or use any other environment or container you are comfortable with):
 
@@ -25,29 +25,25 @@
 	`python3 -m ipykernel install --name=venvChatIP --user`
 	
 	`brew install wget` # install  wget with brew
+
+5. NCBI EDirect Installation 
+
+	We use NCBIs Esearch to download the papers' unique identifires(PMIDs).
+
+	For a quick installation, run this single command:
+
+	```bash
+		`sh -c "$(wget -q https://ftp.ncbi.nlm.nih.gov/entrez/entrezdirect/install-edirect.sh -O -)"` #  install e-direct with wget
+
+		for **Windows VS Code**
 	
-	`sh -c "$(wget -q https://ftp.ncbi.nlm.nih.gov/entrez/entrezdirect/install-edirect.sh -O -)"` #  install e-direct with wget
+		e-direct is not supported on windows, download wsl2 instead
 
-	**Windows VS Code**
-   
-	e-direct is not supported on windows, download wsl2 instead
-
-	`wsl --install` # install command in PowerShell 
+		`wsl --install` # install command in PowerShell 
 
 
-6. Download the NCBI oa_text mining DB and move it to the right folder:
 
-	`wget https://ftp.ncbi.nlm.nih.gov/pub/pmc/oa_file_list.csv`
-
-	`mv oa_file_list.csv RefDocs/oa_file_list.csv`
-
-   In case of commercial use,  Download the NCBI oa_commercial_text mining DB:
-   
-	`wget https://ftp.ncbi.nlm.nih.gov/pub/pmc/oa_comm_use_file_list.csv`
-
-	`mv oa_file_list.csv RefDocs/oa_comm_file_list.csv`
-
-8. ##### After cloning the repo:
+6. ##### After cloning the repo:
 
 	Create a `LOGS/` + `Reference_files/` folders and add your `keys.py` and `query`:
 
