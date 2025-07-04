@@ -7,6 +7,7 @@ import json
 import csv
 import os as os
 import urllib.parse
+from time import sleep
 from tqdm import tqdm  
 from datetime import datetime, timedelta, date
 import matplotlib.pyplot as plt
@@ -18,8 +19,10 @@ from multiprocessing.pool import ThreadPool
 from typing import List, Iterator, Optional
 from habanero import Crossref
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from Reference_files.keys import API_KEY as API_KEY
+from Reference_files.keys import API_KEY as api_key
 import xml.etree.ElementTree as ET
+from matplotlib.ticker import FuncFormatter
+
 # Decorator 1 
 retry_on_communication_error = partial(
     retry,
@@ -289,10 +292,8 @@ def download_pmc_articles(oa_pmcids, output_dir='./Full_text_jsons'):
     return success_count, failed_fulltext
 
 
-from time import sleep
 
-
-def get_pubmed_count(query, full_text=False, api_key=None):
+def get_pubmed_count(query, full_text=False, api_key=api_key):
     url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     db = "pmc" if full_text else "pubmed"
     data = {
@@ -304,10 +305,8 @@ def get_pubmed_count(query, full_text=False, api_key=None):
     if api_key:
         data["api_key"] = api_key
 
-    rate_limit = 10 if api_key else 3
-    delay = 1 / rate_limit
+    delay = 1.1
     time.sleep(delay)  # rate limiting
-
     max_retries = 5
     for attempt in range(max_retries):
         try:
@@ -316,8 +315,8 @@ def get_pubmed_count(query, full_text=False, api_key=None):
             return int(response.json()['esearchresult'].get('count', 0))
         except requests.exceptions.HTTPError as e:
             if response.status_code == 429:
-                wait_time = 2 ** attempt
-                logging.warning(f"Rate limit hit (HTTP 429). Retrying in {wait_time}s...")
+                wait_time = 1 ** attempt
+                logging.warning(f"Rate limit hit (HTTP 429). Make sure you added your api_key to the environment. Retrying in {wait_time}s...")
                 time.sleep(wait_time)
                 continue
             else:
@@ -329,9 +328,9 @@ def get_pubmed_count(query, full_text=False, api_key=None):
     return 0
 
 
-def get_list(query, full_text, api_key=None):
+def get_list(query, full_text, api_key=api_key):
     if api_key is None:
-        api_key = API_KEY
+        api_key = api_key
     num_of_articles = 500
     start_index = 0
     pmids = []
@@ -344,7 +343,7 @@ def get_list(query, full_text, api_key=None):
                     query,
                     retstart=start_index,
                     retmax=num_of_articles,
-                    pmc_only=full_text, api_key=API_KEY
+                    pmc_only=full_text, api_key=api_key
                 )
                 pmids.extend(pmid_batch)
                 start_index = len(pmids)
@@ -380,7 +379,7 @@ def get_fixed_month_interval(start_date):
         return None
 
 
-def generate_date_batches(query, start_date, stop_date, target_papers_per_batch=10000, window_sizes=[365, 180, 90, 60, 40, 20, 10, 1], max_workers=2, verbose=True, full_text=False):
+def generate_date_batches(query, start_date, stop_date, target_papers_per_batch=10000, window_sizes=[365, 180, 90, 60, 40, 20, 10, 1], max_workers = 1,  verbose=True, full_text=False):
     date_ranges = []
     current = start_date
     total_papers = 0
@@ -467,6 +466,43 @@ def fetch_pmids_parallel(date_batches, query, full_text, max_workers):
 
     return results, metadata
 
+def plot_density_over_time(metadata):
+    """Visualize counts as line chart using metadata from fetch_pmids_parallel."""
+    df = pd.DataFrame(metadata)
+    df['start'] = pd.to_datetime(df['start'])
+    df['end'] = pd.to_datetime(df['end'])
+    df['Midpoint'] = df['start'] + (df['end'] - df['start'])/2
+    df['Label'] = df['start'].dt.strftime('%Y-%m-%d') + '\nto\n' + df['end'].dt.strftime('%Y-%m-%d')
+    df = df.sort_values('Midpoint')
+    
+    plt.figure(figsize=(12, 6))
+    line, = plt.plot(df['Midpoint'], df['count'], 
+                    marker='o', 
+                    linestyle='-', 
+                    color='steelblue',
+                    linewidth=2,
+                    markersize=8)
+    
+    for x, y, label in zip(df['Midpoint'], df['count'], df['Label']):
+        plt.text(x, y, f'{int(y):,}', 
+                ha='center', 
+                va='bottom',
+                bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
+    
+    plt.title("Paper Counts Over Time", pad=20)
+    plt.xlabel("Date Range", labelpad=10)
+    plt.ylabel("Number of Papers", labelpad=10)
+    
+    plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{int(x):,}'))
+    plt.grid(True, which='both', linestyle='--', alpha=0.4)
+    
+    ax = plt.gca()
+    ax.set_xticks(df['Midpoint'])
+    ax.set_xticklabels(df['Label'], rotation=45, ha='right')
+    
+    plt.tight_layout()
+    plt.show()
+
 def fetch_pmids_over_period(query_file, start="2000-01-01", stop=None, full_text=False, max_workers=2, plot=True):
     query = read_query_from_file(query_file)
     if not query:
@@ -480,48 +516,14 @@ def fetch_pmids_over_period(query_file, start="2000-01-01", stop=None, full_text
     stop_date = date.fromisoformat(stop)
 
     date_batches = generate_date_batches(query, start_date, stop_date, full_text=full_text, max_workers=max_workers)
-    if plot:
-        batch_metadata_preview = [
-            {
-                "start": str(start),
-                "end": str(end),
-                "count": get_pubmed_count(f'("{start}"[PDat] : "{end}"[PDat]) {query}', full_text=full_text)
-            }
-            for start, end in date_batches
-        ]
-        plot_density_over_time(batch_metadata_preview)
-    pmid_list, batch_metadata = fetch_pmids_parallel(date_batches, query, full_text=full_text, max_workers=max_workers)
-    pmid_list = list(set(pmid_list))  # Remove duplicates
-    return np.array(pmid_list), batch_metadata
 
-
-
-
-def plot_density_over_time(batch_metadata):
-    if not batch_metadata:
-        print("No batch metadata to plot.")
-        return
-
-    mid_dates = []
-    densities = []
-
-    for meta in batch_metadata:
-        start = datetime.fromisoformat(meta["start"])
-        end = datetime.fromisoformat(meta["end"])
-        duration = (end - start).days or 1
-        mid = start + (end - start) / 2
-        mid_dates.append(mid)
-        densities.append(meta["count"] / duration)
-
-    plt.figure(figsize=(12, 6))
-    plt.plot(mid_dates, densities, marker='o', linestyle='-', color='blue')
-    plt.title("Publication Density Over Time")
-    plt.xlabel("Date")
-    plt.ylabel("Papers per Day")
-    plt.grid(True)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.show()
+    pmid_list, batch_metadata = fetch_pmids_parallel(
+        date_batches, query, full_text=full_text, max_workers=max_workers
+    )
+    plot_density_over_time(batch_metadata)
+    pmid_list = list(set(pmid_list))  #Remove duplicates/the count that will be printed from batches before getting the pmids distinct list will be higher bcs of the duplicates
+     
+    return pmid_list, batch_metadata
 
 
 
