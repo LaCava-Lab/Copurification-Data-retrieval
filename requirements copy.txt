@@ -1,0 +1,40 @@
+#Python 3.11
+
+#general
+pandas 
+matplotlib
+seaborn
+openpyxl==3.1.2
+beautifulsoup4==4.12.2 
+MechanicalSoup==1.3.0
+tenacity 
+sqlitedict
+eutils
+requests
+futures
+python-dateutil 
+numpy
+tqdm
+ratelimit
+
+#article DB APIs
+habanero
+pubtatortool==0.6.5
+#elsapy==0.5.1  #Elsevier 
+biopython
+
+#generative
+#openai==0.27.8
+#sentence_transformers
+#scikit-learn
+#xgboost
+#huggingface-hub==0.16.4
+#wandb==0.15.8
+#tiktoken
+#langchain==0.0.270
+
+#pytorch==1.0.2
+#torch==2.0.0 
+#xformers==0.0.21 --no-deps
+#accelerate==0.22.0 
+
