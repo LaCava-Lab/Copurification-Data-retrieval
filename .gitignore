@@ -10,7 +10,7 @@ venvChatIP
 __init__.py
 
 ## Data files
-*.csv
+
 #*.txt
 *.log
 
