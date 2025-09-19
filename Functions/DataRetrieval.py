@@ -63,13 +63,6 @@ retry_on_communication_error = partial(
 )
 
 
-
-# Set email (required by NCBI)
-Entrez.email = "nkhanji@rockefeller.edu" 
-
-# Set your API key 
-Entrez.api_key = "70faf5cc42501a814dcc4bdb1862acaf3909" 
-
 # Configure max retries on failed requests (optional, default is 3)
 Entrez.max_tries = 10
 #####Bio.Entrez.max_tries and Bio.Entrez.sleep_between_tries
@@ -421,7 +414,7 @@ def plot_density_over_time(batch_metadata):
 
 
 
-def fetch_pmids_over_period(query_file, start="2000-01-01", stop=None, full_text=False, plot=True, max_workers=2):
+def fetch_pmids_over_period(query_file, start=None, stop=None, full_text=False, plot=True, max_workers=2):
     """Main function to orchestrate fetching PMIDs over a period."""
     if not getattr(Entrez, 'email', None): # Check if Entrez.email is set
          Entrez.email = input("Please enter your email for NCBI Entrez: ").strip()
@@ -447,7 +440,8 @@ def fetch_pmids_over_period(query_file, start="2000-01-01", stop=None, full_text
 
     # Parse dates
     try:
-        start_date = date.fromisoformat(start)
+        if start is None:
+            start_date = date(1828, 1, 1)
         if stop is None:
             stop_date = date.today()
         else:
@@ -1592,162 +1586,6 @@ def extract_text_from_json_to_dataframe(directory: str, section_types: List[str]
     return df
 
 ###################################################################### BIOPYTHON:ENTREZ ######################################################################
-
-def robust_efetch(pmid: str, max_retries: int = 3) -> str:
-    
-    for attempt in range(max_retries):
-        try:
-            handle = Entrez.efetch(db="pubmed", id=pmid, retmode="xml")
-            xml_data = handle.read()
-            handle.close()
-
-            if isinstance(xml_data, bytes):
-                xml_data = xml_data.decode("utf-8")
-
-            return xml_data
-
-        except HTTPError as e:
-            print(f"[{pmid}] HTTPError: {e}. Retrying ({attempt + 1}/{max_retries})...")
-            time.sleep(2 ** attempt)
-        except Exception as e:
-            print(f"[{pmid}] Unexpected error: {e}. Retrying ({attempt + 1}/{max_retries})...")
-            time.sleep(2 ** attempt)
-
-    print(f"[{pmid}] Failed after {max_retries} retries.")
-    return None
-
-
-def fetch_parse_pubmed_metadata1(pmids: List[str]) -> pd.DataFrame:
-    '''Fetch and parse PubMed records for a list of PMIDs using Biopython Entrez.'''
-    records = []
-
-    for pmid in tqdm(pmids, desc="Fetching PubMed records"):
-        xml_data = robust_efetch(pmid)
-        if not xml_data:
-            continue  # skip failed fetch
-
-        try:
-            root = ET.fromstring(xml_data)
-
-            for article in root.findall(".//PubmedArticle"):
-                pmid_text = article.findtext(".//ArticleId[@IdType='pubmed']")
-                pmcid_text = article.findtext(".//ArticleId[@IdType='pmc']")
-                    
-                # Extract full title including text from nested elements (e.g., <i>, <sub>)
-                title_elem = article.find(".//ArticleTitle")
-                title = "".join(title_elem.itertext()) if title_elem is not None else None
-
-                # Extract abstract (note: AbstractText may be missing or have multiple sections)
-                abstract_elem = article.find(".//AbstractText")
-                if abstract_elem is not None:
-                    # Handle structured abstracts: some have multiple <AbstractText Label="..."> sections
-                    # If you want to concatenate all AbstractText elements under <Abstract>
-                    abstract_texts = article.findall(".//AbstractText")
-                    abstract = " ".join(["".join(ab.itertext()) for ab in abstract_texts]).strip()
-                else:
-                    abstract = None
-                    
-                journal = article.findtext(".//Journal/Title")
-                pub_year = article.findtext(".//PubDate/Year")
-                issn = article.findtext(".//Journal/ISSN")
-                doi = article.findtext(".//ArticleId[@IdType='doi']")
-
-                # Extract all dates separately
-                received_date = None
-                revised_date = None
-                accepted_date = None
-                completed_date = None
-                
-                # Extract dates from History
-                history = article.find(".//History")
-                if history is not None:
-                    for pub_date in history.findall("PubMedPubDate"):
-                        pub_status = pub_date.get("PubStatus")
-                        year = pub_date.findtext("Year", default="")
-                        month = pub_date.findtext("Month", default="")
-                        day = pub_date.findtext("Day", default="")
-                        
-                        if year and month and day:
-                            date_str = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
-                            
-                            if pub_status == "received":
-                                received_date = date_str
-                            elif pub_status == "revised":
-                                revised_date = date_str
-                            elif pub_status == "accepted":
-                                accepted_date = date_str
-                
-                # Extract DateRevised from standalone element
-                date_revised_elem = article.find(".//DateRevised")
-                if date_revised_elem is not None:
-                    year = date_revised_elem.findtext("Year", default="")
-                    month = date_revised_elem.findtext("Month", default="")
-                    day = date_revised_elem.findtext("Day", default="")
-                    if year and month and day:
-                        revised_date = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
-
-                # Extract DateCompleted
-                date_completed_elem = article.find(".//DateCompleted")
-                if date_completed_elem is not None:
-                    year = date_completed_elem.findtext("Year", default="")
-                    month = date_completed_elem.findtext("Month", default="")
-                    day = date_completed_elem.findtext("Day", default="")
-                    if year and month and day:
-                        completed_date = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
-
-
-                # Extract authors
-                authors = []
-                for author in article.findall(".//Author"):
-                    last = author.findtext("LastName")
-                    first = author.findtext("ForeName")
-                    if first and last:
-                        authors.append(f"{first} {last}")
-
-                chemicals = [
-                    chem.findtext("NameOfSubstance")
-                    for chem in article.findall(".//ChemicalList/Chemical")
-                    if chem.find("NameOfSubstance") is not None
-                ]
-
-                mesh_headings = []
-                for heading in article.findall(".//MeshHeadingList/MeshHeading"):
-                    descriptor = heading.findtext("DescriptorName")
-                    qualifiers = [q.text for q in heading.findall("QualifierName") if q.text]
-                    if qualifiers:
-                        entry = f"{descriptor}: {', '.join(qualifiers)}"
-                    else:
-                        entry = descriptor
-                    mesh_headings.append(entry)
-
-                record = {
-                    "PMID": str(pmid_text or ""),
-                    "PMCID": str(pmcid_text or ""),
-                    "Title": str(title or ""),
-                    "Date Received": str(received_date or ""),
-                    "Date Revised": str(revised_date or ""),
-                    "Date Accepted": str(accepted_date or ""),
-                    "Date Completed": str(completed_date or ""),
-                    "Abstract": str(abstract or ""),
-                    "Journal": str(journal or ""),
-                    "PublicationYear": str(pub_year or ""),
-                    "Authors": "; ".join(authors),
-                    "DOI": str(doi or ""),
-                    "ISSN": str(issn or ""),
-                    "ChemicalList_Names": ", ".join(chemicals),
-                    "MeshHeadingList_Descriptors": "; ".join(mesh_headings)
-                }
-
-                records.append(record)
-
-        except Exception as e:
-            print(f"Error parsing PMID {pmid}: {e}")
-
-    return pd.DataFrame(records)
-############################################################################# final biopython metadatafetch #########################################################################
-
-
-
 def fetch_chunk_metadata(pmid_chunk: List[str]) -> pd.DataFrame:
     """Fetch and parse metadata for a single chunk of PMIDs."""
     if not pmid_chunk:
@@ -1756,7 +1594,7 @@ def fetch_chunk_metadata(pmid_chunk: List[str]) -> pd.DataFrame:
 
     records = []
     # Define batch size for efetch within the chunk (must be <= 10,000, 500 is safe)
-    efetch_batch_size = 2000
+    efetch_batch_size = 9999
 
     try:
         # 1. EPost this specific chunk
@@ -1806,10 +1644,10 @@ def fetch_chunk_metadata(pmid_chunk: List[str]) -> pd.DataFrame:
                     # --- Extract and clean fields inline ---
 
                     # PMID, PMCID, Title, Abstract, Authors
-                    pmid = article.get("PMID", "")
-                    pmcid = article.get("PMC", "")
-                    title = article.get("TI", "")
-                    abstract = article.get("AB", "")
+                    pmid = article.get("PMID", None)
+                    pmcid = article.get("PMC", None)
+                    title = article.get("TI", None)
+                    abstract = article.get("AB", None)
                     authors = "; ".join(article.get("AU", []))
 
                     # --- DOI from AID (inline) ---
@@ -1820,30 +1658,38 @@ def fetch_chunk_metadata(pmid_chunk: List[str]) -> pd.DataFrame:
                             doi = aid.split(" ")[0]  # Extract DOI part before ' [doi]'
                             break
 
-                    # --- Dates: Reformat YYYYMMDD → YYYY-MM-DD (inline) ---
-                    def reformat_ymd(date_str):
-                        return f"{date_str[0:4]}-{date_str[4:6]}-{date_str[6:8]}" if date_str and len(date_str) == 8 and date_str.isdigit() else date_str
+                    # Extract dates from PHST field
+                    phst_entries = article.get("PHST", [])
+                    pubmed_date = None
+                    pmc_release_date = None
 
-                    date_completed = reformat_ymd(article.get("DCOM", ""))
-                    date_created = reformat_ymd(article.get("DA", ""))
-                    date_last_revised = reformat_ymd(article.get("LR", ""))
-                    date_publication = article.get("DP", "") # Keep as is, often not in YYYYMMDD
+                    for entry in phst_entries:
+                        if "[pubmed]" in entry:
+                            # Extract date part and remove time
+                            date_part = entry.split()[0]  # Gets YYYY/MM/DD part
+                            pubmed_date = date_part.replace("/", "-")  # Convert to YYYY-MM-DD
+                        elif "[pmc-release]" in entry:
+                            # Extract date part and remove time
+                            date_part = entry.split()[0]  # Gets YYYY/MM/DD part
+                            pmc_release_date = date_part.replace("/", "-")  # Convert to YYYY-MM-DD
+
+                    date_publication = article.get("DP", None) 
 
                     # --- ISSN: Extract first xxxx-xxxx (inline) ---
                     raw_issn = article.get("IS", "")
                     issn_match = re.search(r"\d{4}-\d{4}", raw_issn)
-                    issn = issn_match.group(0) if issn_match else ""
+                    issn = issn_match.group(0) if issn_match else None
 
                     # Journal, Issue, Volume
-                    issue = article.get("IP", "")
-                    volume = article.get("VI", "")
-                    journal_abbrev = article.get("TA", "")
-                    journal_full = article.get("JT", "")
+                    issue = article.get("IP", None)
+                    volume = article.get("VI", None)
+                    journal_abbrev = article.get("TA", None)
+                    journal_full = article.get("JT", None)
 
-                    # --- Combined Terms: MH + OT + RN (cleaned) + NM (inline) ---
-                    mesh_terms = article.get("MH", [])
-                    other_terms = article.get("OT", [])
-                    substance_names = article.get("NM", [])
+                    # --- Separate Fields for MH, OT, NM, RN ---
+                    mesh_terms = article.get("MH", None)
+                    other_terms = article.get("OT", None)
+                    substance_names = article.get("NM", None)
 
                     # Clean RN: extract text inside parentheses
                     registry_numbers_cleaned = []
@@ -1854,31 +1700,27 @@ def fetch_chunk_metadata(pmid_chunk: List[str]) -> pd.DataFrame:
                         else:
                             registry_numbers_cleaned.append(rn_entry)
 
-                    combined_terms = "; ".join(
-                        list(mesh_terms) +
-                        list(other_terms) +
-                        list(registry_numbers_cleaned) +
-                        list(substance_names)
-                    )
-
                     # --- Build final record ---
                     record = {
                         "PMID": pmid,
                         "PMCID": pmcid,
                         "Title": title,
                         "Abstract": abstract,
+                        "Journal Title": journal_full,
+                        "Journal Title Abbreviation": journal_abbrev,
                         "Authors": authors,
                         "DOI": doi,
-                        "Date Completed": date_completed,
-                        "Date Created": date_created,
-                        "Date Last Revised": date_last_revised,
+                        "Pubmed date": pubmed_date,
+                        "PMC Release Date": pmc_release_date,
                         "Date of Publication": date_publication,
                         "ISSN": issn,
                         "Issue": issue,
                         "Volume": volume,
-                        "Journal Title Abbreviation": journal_abbrev,
-                        "Journal Title": journal_full,
-                        "Combined Terms (MH+OT+RN+NM)": combined_terms,
+                        # Individual term lists
+                        "MeSH Terms (MH)": mesh_terms,
+                        "Other Terms (OT)": other_terms,
+                        "Substance Names (NM)": substance_names,
+                        "Registry Numbers (RN)": registry_numbers_cleaned 
                     }
 
                     records.append(record)
@@ -1886,8 +1728,6 @@ def fetch_chunk_metadata(pmid_chunk: List[str]) -> pd.DataFrame:
 
             except Exception as e: # Catch errors from efetch or parsing this sub-batch
                 logging.error(f"Error fetching or parsing sub-batch starting at index {start} for chunk (PMIDs ~{pmid_chunk[start:start+3]}...): {e}")
-                # Depending on desired robustness, you could continue to the next sub-batch or return partial results/raise
-                # For now, we'll log and continue processing other sub-batches of this chunk.
             finally:
                 # Ensure the stream for this sub-batch is closed
                 if stream is not None:
@@ -1897,15 +1737,11 @@ def fetch_chunk_metadata(pmid_chunk: List[str]) -> pd.DataFrame:
                     except Exception as close_error:
                         logging.warning(f"Error closing stream for sub-batch {start}-{start + current_batch_size - 1}: {close_error}")
 
-            # Be polite to NCBI servers between sub-batch fetches within this chunk
-            time.sleep(0.34) # ~3 requests/second, adjust if using API key
 
     except Exception as e: # Catch errors from the overall chunk processing (e.g., epost failure)
         logging.error(f"Failed to process chunk starting with PMID {pmid_chunk[0] if pmid_chunk else 'N/A'}: {e}")
         # Return any records collected so far for this chunk, or an empty DataFrame
-        # Returning partial results might be better than losing the whole chunk.
-        # return pd.DataFrame(records) # Uncomment to return partial results on chunk error
-        return pd.DataFrame() # Return empty DataFrame for this chunk on critical error
+        return pd.DataFrame(records)
 
     return pd.DataFrame(records)
 
@@ -1916,11 +1752,11 @@ def fetch_parse_pubmed_metadata(pmid_list: List[str]) -> pd.DataFrame:
     # Ensure Entrez is configured
     if not getattr(Entrez, 'email', None):
         Entrez.email = input("Enter your email (required by NCBI): ").strip()
-        if not Entrez.email:
-            logging.error("Entrez.email is required.")
-            return pd.DataFrame()
+    if not Entrez.email:
+        logging.error("Entrez.email is required.")
+        return pd.DataFrame()
     if not getattr(Entrez, 'api_key', None):
-        Entrez.api_key = "YOUR_API_KEY" # Or prompt
+        Entrez.api_key = input("Enter your NCBI API key (optional but recommended): ").strip() or None
         logging.info("API key set.")
 
     # 1. Clean and deduplicate the main list
@@ -1960,13 +1796,19 @@ def fetch_parse_pubmed_metadata(pmid_list: List[str]) -> pd.DataFrame:
                     chunk_df = future.result()
                     all_results.append(chunk_df)
                     # Optional: Update the progress bar description with live stats
-                    # collected_records = sum(len(df) for df in all_results)
-                    # progress_bar.set_postfix({"Records": collected_records}) 
-                    
+                    collected_records = sum(len(df) for df in all_results)
+                    progress_bar.set_postfix({"Records": f"{collected_records}/{len(unique_pmid_list)}"
+            })
+            
                     logging.debug(f"Chunk {chunk_index} processed successfully. Records: {len(chunk_df)}")
                 except Exception as e:
                     logging.error(f"Chunk {chunk_index} generated an exception: {e}")
-                    # Handle failed chunks (log, retry logic, etc.)
+                    # Still update the counter even on error
+                    collected_records = sum(len(df) for df in all_results)
+                    progress_bar.set_postfix({
+                    "Records": f"{collected_records}/{len(unique_pmid_list)}"
+                    })
+
 
     # 4. Concatenate all results
     if all_results:
