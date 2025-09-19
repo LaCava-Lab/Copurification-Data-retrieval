@@ -514,96 +514,8 @@ def fetch_pmids_over_period(query_file, start=None, stop=None, full_text=False, 
 
 
 
-
-################################################ ##################################################################################################
-################################################ Fetch PubMed Metadata ############################################################# #################################################################################################################
-
-def fetch_pmcid(pmid):
-    """converts PMID to it corresponding PMCID."""
-
-    try:
-        pmc = pubmedcentral.get_pmcid_for_otherid(pmid)
-        return pmc
-    except (CommunicationError, ConnectionError) as e:
-        logging.error(f"Error: API request failed for {pmid}: {e}")
-        return None
-    except Exception as e:
-        logging.error(f"Unexpected error for {pmid}: {e}")
-        return None
-
-def get_pmcid_for_otherid(pmid_clean_list):
-    """converts a list of PMIDs to a list of corresponding PMCIDs in parallel using multithreading."""
-    PMCIDs = []
-    with ThreadPoolExecutor(max_workers=10) as executor:  # Adjust max_workers based on needs
-        future_to_pmid = {executor.submit(fetch_pmcid, pmid): pmid for pmid in pmid_clean_list}
-        for future in as_completed(future_to_pmid):
-            pmid = future_to_pmid[future]
-            try:
-                pmc = future.result()
-                PMCIDs.append(pmc)
-            except Exception as e:
-                logging.error(f"Error processing PMID {pmid}: {e}")
-                PMCIDs.append(None)
-    return PMCIDs
-
-
-def fetch_article(pmid: str):
-    """Fetch a single article from PubMed by PMID."""
-    article = fetcher.article_by_pmid(pmid)
-    if article.pmid != pmid:
-        logging.warning("Article with pmid=%r returned pmid=%r", pmid, article.pmid)
-    return article
-
-@retry_on_communication_error()
-def fetch_articles(pmids: List[str], *, processes: Optional[int] = 1) -> Iterator:
-    """Fetch multiple articles from PubMed in parallel using a thread pool with progress bar."""
-    with ThreadPool(processes=processes) as pool:
-        # Wrap with tqdm for progress tracking
-        for article in tqdm(
-            pool.imap_unordered(fetch_article, pmids),
-            total=len(pmids),
-            desc="Fetching PubMed articles",
-            unit="article"
-        ):
-            if article is not None:
-                yield article
-
-def fetch_articles_meta(pmids: List[str]) -> pd.DataFrame:
-    """Fetch articles and return them as a pandas DataFrame with progress tracking."""
-    articles_data = []
-    
-    # Initialize progress bar for fetching articles
-    for article in tqdm(
-        fetch_articles(pmids, processes=1),
-        total=len(pmids),
-        desc="Adding them",
-        unit="row"
-    ):
-        articles_data.append({
-            'PMID': article.pmid,
-            'PMCID': article.pmc,
-            'DOI': article.doi,
-            'Title': article.title,
-            'Authors': ', '.join(article.authors),
-            'Year': article.year,
-            'Journal': article.journal,
-            'Volume': article.volume,
-            'Issue': article.issue,
-            'Pages': article.pages,
-            'Abstract': article.abstract,
-        })
-
-    df = pd.DataFrame(articles_data)
-    df['PMCID'] = df['PMCID'].apply(lambda x: f"PMC{x}" if pd.notnull(x) else x)
-    return df
-
-
-
-
-
-
-
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      ###############pmid to pmcid converter
 def pmid2pmcid(pmids, email):
     """Convert a list of PMIDs to PMCIDs using the NCBI ID Converter API."""
 
@@ -704,7 +616,7 @@ def filter_df_oa_database(df):
 
 
 ################################################################  ##############################################################################################
-################################################################ ADD PUBLISHER from CRossref API ################################################################
+################################################################ ADD PUBLISHER from Crossref API ################################################################
 # --- Configuration ---
 # Number of DOIs per batch (keep small for URL length)
 DOIS_PER_BATCH = 8
