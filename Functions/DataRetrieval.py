@@ -307,6 +307,7 @@ def fetch_pmids_parallel(date_batches, query, full_text, max_workers):
     """Fetches PMIDs for a list of date batches in parallel."""
     results = []
     metadata = []
+    
 
     def fetch_single_batch(batch_tuple):
         """Fetches PMIDs for a single batch tuple (start_date, end_date, count)."""
@@ -414,43 +415,51 @@ def plot_density_over_time(batch_metadata):
 
 
 
-def fetch_pmids_over_period(query_file, start=None, stop=None, full_text=False, plot=True, max_workers=2):
-    """Main function to orchestrate fetching PMIDs over a period."""
-    if not getattr(Entrez, 'email', None): # Check if Entrez.email is set
-         Entrez.email = input("Please enter your email for NCBI Entrez: ").strip()
-         if not Entrez.email:
-             logging.error("Entrez.email is required. Exiting.")
-             return []
-    # Get API Key
-    if not getattr(Entrez, 'api_key', None): # Check if Entrez.api_key is set
-        api_input = input('Please enter NCBI API key *recommended* (or press Enter to skip): ').strip()
-        API_KEY = api_input if api_input else None
-        if API_KEY:
-            Entrez.api_key = API_KEY # Set Entrez.api_key if using Biopython's Entrez
-            logging.info("API key set for Entrez.")
-        else:
-            logging.warning("No API key provided. Rate limits may apply.")
-
-
-    # Read query
-    query = read_query_from_file(query_file)
-    if not query:
-        logging.error("Failed to read or invalid query.")
+def fetch_pmids_over_period(query_file, start, stop, full_text=False, plot=True, max_workers=4):
+    """
+    Fetch PMIDs over a specified time period
+    """
+    # Initialize date variables
+    start_date = None
+    stop_date = None
+    
+    # Read query from file
+    try:
+        with open(query_file, 'r') as f:
+            query = f.read().strip()
+    except Exception as e:
+        logging.error(f"Error reading query file: {e}")
         return []
-
-    # Parse dates
+    full_count = get_pubmed_count(query)
+    print(f'Total results from the query is {full_count}, will start fetching PMIDs....')    # Parse dates
     try:
         if start is None:
-            start_date = date(1828, 1, 1)
+            start_date = date(2010, 1, 1)
+        else:
+            start_date = date.fromisoformat(start)
+        
         if stop is None:
             stop_date = date.today()
         else:
             stop_date = date.fromisoformat(stop)
+            
+        if start_date > stop_date:
+            logging.error(f"Start date ({start_date}) cannot be after stop date ({stop_date})")
+            return []
+            
     except ValueError as e:
-        logging.error(f"Invalid date format: {e}")
+        logging.error(f"Invalid date format. Expected YYYY-MM-DD: {e}")
         return []
-
-    # Generate date batches
+    except Exception as e:
+        logging.error(f"Unexpected error parsing dates: {e}")
+        return []
+    
+    # Check that dates were successfully set
+    if start_date is None or stop_date is None:
+        logging.error("Failed to parse dates")
+        return []
+    
+    # Continue with your function...
     print("Generating date batches...")
     date_batches = generate_date_batches(
         query=query,
@@ -459,7 +468,7 @@ def fetch_pmids_over_period(query_file, start=None, stop=None, full_text=False, 
         full_text=full_text,
         max_workers=max_workers,
     )
-
+    
     # Plot if requested
     if plot and date_batches:
         # Prepare metadata for plotting (list of dicts)
@@ -510,6 +519,8 @@ def fetch_pmids_over_period(query_file, start=None, stop=None, full_text=False, 
         logging.error(f"Error saving PMIDs to file {filename}: {e}")
 
     return unique_pmid_list
+
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
@@ -617,429 +628,138 @@ def filter_df_oa_database(df):
 
 ################################################################  ##############################################################################################
 ################################################################ ADD PUBLISHER from Crossref API ################################################################
-# --- Configuration ---
-# Number of DOIs per batch (keep small for URL length)
-DOIS_PER_BATCH = 8
-# Number of concurrent worker threads for DOI processing
-MAX_WORKERS = 8 # Adjust based on testing/rate limits
-# Number of concurrent worker threads for ISSN processing
-MAX_ISSN_WORKERS = 8 # Adjust based on testing/rate limits, maybe lower than DOI workers
-# Number of ISSNs per batch (adjust as needed, maybe keep small)
-ISSN_BATCH_SIZE = 8# Adjust based on testing/rate limits
-
-# Number of times to retry on a 500 error
-MAX_RETRIES = 3
-# Seconds to wait between retries
-RETRY_DELAY = 0.2
-
-# --- Rate Limiting Configuration ---
-# Crossref API limit is 50 requests per second
-CROSSREF_CALLS_PER_SECOND = 50
-# Calculate the period based on the rate limit
-CROSSREF_PERIOD_SECONDS = 1 # Per second
-
-# --- Define the Rate-Limited Request Function ---
-@sleep_and_retry # Automatically sleeps if the rate limit is exceeded before the call
-@limits(calls=CROSSREF_CALLS_PER_SECOND, period=CROSSREF_PERIOD_SECONDS)
-def rate_limited_get(url, **kwargs):
-    """Wrapper for requests.get that enforces rate limiting."""
-    return requests.get(url, **kwargs)
-
-
-
-def query_crossref_doi_batch(doi_batch: list[str], mailto: str) -> dict[str, str | None]:
+def add_publishers(df: pd.DataFrame, email: str, max_workers: int = 5) -> pd.DataFrame:
     """
-    Queries Crossref for a batch of DOIs and returns a mapping of DOI to Publisher.
-    Includes retry logic for HTTP 500 errors.
-    Uses rate-limited requests.
+    Adds 'Publisher' column using threaded HTTP requests + smart deduplication.
+    - First: Try ISSN lookup (Strategy 1, then Strategy 2)
+    - ONLY if ISSN fails → try Title lookup (Strategy 3)
+    - Never queries title if ISSN already succeeded → saves time + API calls
     """
-    WORKS_API_URL = 'https://api.crossref.org/works' # Fixed trailing spaces
-    doi_publisher_map = {doi: None for doi in doi_batch if pd.notna(doi)}
-    if not doi_batch:
-        return doi_publisher_map
+    base_url = "https://api.crossref.org"
+    headers = {"User-Agent": f"MyPublisherFetcher/1.0 (mailto:{email})"}
+    session = requests.Session()
+    session.headers.update(headers)
 
-    valid_dois = [doi for doi in doi_batch if pd.notna(doi)]
-    if not valid_dois:
-        return doi_publisher_map
+    # Step 1: Extract unique ISSNs and map ISSN → set of titles (for fallback later)
+    unique_issns: Set[str] = set(df["ISSN"].dropna().astype(str))
+    issn_to_titles: Dict[str, Set[str]] = {}  # For fallback: which titles belong to failed ISSNs
 
-    doi_filter_str = ",".join([f"doi:{doi}" for doi in valid_dois])
+    # Also collect ALL titles for rows with no ISSN (edge case)
+    titles_with_no_issn: Set[str] = set()
 
-    params = {
-        'filter': doi_filter_str,
-        'mailto': mailto,
-        'select': 'DOI,publisher',
-    }
+    # Build mapping: for each ISSN, which titles are associated (for fallback)
+    for _, row in df.iterrows():
+        issn = row.get("ISSN")
+        title = row.get("Journal Title")
+        if isinstance(issn, str) and isinstance(title, str):
+            if issn not in issn_to_titles:
+                issn_to_titles[issn] = set()
+            issn_to_titles[issn].add(title)
+        elif not isinstance(issn, str) and isinstance(title, str):
+            titles_with_no_issn.add(title)
 
-    # retry
-    for attempt in range(MAX_RETRIES + 1): # Try up to MAX_RETRIES times, plus the initial attempt
+    # Lookup dictionaries
+    issn_to_publisher: Dict[str, Optional[str]] = {}
+    title_to_publisher: Dict[str, Optional[str]] = {}
+
+    # --- FETCH PUBLISHER BY ISSN ---
+    def fetch_publisher_by_issn(issn: str) -> Tuple[str, Optional[str]]:
+        # Strategy 1: /journals/{issn}
         try:
-            # --- Use rate_limited_get instead of requests.get ---
-            response = rate_limited_get(WORKS_API_URL, params=params, timeout=30)
+            r = session.get(f"{base_url}/journals/{issn}", timeout=10)
+            if r.status_code == 200:
+                data = r.json()
+                publisher = data.get("message", {}).get("publisher")
+                if publisher:
+                    return issn, publisher  # Short-circuit
+        except Exception:
+            pass
 
-            # Check for 500 error and retry if within retry limit
-            if response.status_code == 500:
-                if attempt < MAX_RETRIES:
-                    print(f"    DOI Batch {valid_dois[:2]}...: Received 500 error (attempt {attempt + 1}/{MAX_RETRIES + 1}). Retrying in {RETRY_DELAY}s...")
-                    time.sleep(RETRY_DELAY)
-                    continue # Go to the next iteration of the retry loop
-                else:
-                    print(f"    DOI Batch {valid_dois[:2]}...: Received 500 error. Max retries ({MAX_RETRIES}) exceeded.")
-                    # The map remains initialized with None for these DOIs
-                    break # Exit the retry loop
+        # Strategy 2: /works?filter=issn:{issn}
+        try:
+            r = session.get(f"{base_url}/works?filter=issn:{issn}&rows=1", timeout=10)
+            if r.status_code == 200:
+                data = r.json()
+                items = data.get("message", {}).get("items", [])
+                if items:
+                    publisher = items[0].get("publisher")
+                    if publisher:
+                        return issn, publisher
+        except Exception:
+            pass
 
-            # If successful or other non-500 error, break out of retry loop
-            response.raise_for_status() # Raise for other HTTP errors (4xx)
-            data = response.json()
+        return issn, None  # Both failed
 
-            items = data.get('message', {}).get('items', [])
-            for item in items:
-                doi = item.get('DOI')
-                publisher = item.get('publisher')
-                if doi and doi in doi_publisher_map:
-                    doi_publisher_map[doi] = publisher
-            break # Success, exit retry loop
+    # --- FETCH PUBLISHER BY TITLE ---
+    def fetch_publisher_by_title(title: str) -> Tuple[str, Optional[str]]:
+        encoded_title = urllib.parse.quote(title)
+        try:
+            r = session.get(f"{base_url}/journals?query={encoded_title}", timeout=10)
+            if r.status_code == 200:
+                data = r.json()
+                items = data.get("message", {}).get("items", [])
+                if items:
+                    publisher = items[0].get("publisher")
+                    if publisher:
+                        return title, publisher
+        except Exception:
+            pass
+        return title, None
 
-        except requests.exceptions.RequestException as e:
-            print(f"    DOI Batch {valid_dois[:2]}...: Request error (attempt {attempt + 1}): {e}")
-            if attempt < MAX_RETRIES:
-                 print(f"        Retrying in {RETRY_DELAY}s...")
-                 time.sleep(RETRY_DELAY)
-                 continue # Retry
-            # If it's the last attempt or a non-retryable error, log and return current state (Nones)
-            print(f"    DOI Batch {valid_dois[:2]}...: Failed after {MAX_RETRIES + 1} attempts.")
-            break # Exit retry loop
-        except Exception as e: # Catch other potential errors during JSON parsing etc.
-            print(f"    DOI Batch {valid_dois[:2]}...: Unexpected error (attempt {attempt + 1}): {e}")
-            if attempt < MAX_RETRIES:
-                 print(f"        Retrying in {RETRY_DELAY}s...")
-                 time.sleep(RETRY_DELAY)
-                 continue
-            print(f"    DOI Batch {valid_dois[:2]}...: Failed after {MAX_RETRIES + 1} attempts due to unexpected error.")
-            break # Exit retry loop
-
-    return doi_publisher_map
-
-def query_crossref_issn_batch(issn_batch: list[str], mailto: str) -> dict[str, str | None]:
-    """
-    Queries Crossref /works endpoint for a BATCH of ISSNs and returns a mapping
-    of ISSN to Publisher (from the first work found for that ISSN).
-    """
-    # Initialize map for all ISSNs in the batch
-    issn_publisher_map = {issn: None for issn in issn_batch if pd.notna(issn) and str(issn).lower() not in ('nan', '')}
-
-    if not issn_publisher_map:
-        return issn_publisher_map
-
-    # Implement retry logic for the entire batch
-    for attempt in range(MAX_RETRIES + 1):
-        # Track if any request in the batch failed with a retryable error (500)
-        batch_has_retryable_error = False
-        batch_error_details = []
-
-        # Process each ISSN in the current batch attempt
-        for issn in list(issn_publisher_map.keys()): # Iterate over a copy of keys
-             if not issn or pd.isna(issn) or (isinstance(issn, str) and issn.lower() in ('nan', '')):
-                 # Should ideally be filtered out already, but double-check
-                 issn_publisher_map[issn] = None
-                 continue
-
-             # Construct the URL for the specific ISSN
-             # Note: Using 'rows=1' to get only the first result and not load everything
-             url_params = {
-                 'filter': f'issn:{issn}',
-                 'select': 'publisher',
-                 'mailto': mailto,
-                 'rows': '1'
-             }
-             # Build the query string properly
-             from urllib.parse import urlencode
-             query_string = urlencode(url_params)
-             url = f"https://api.crossref.org/works?{query_string}"
-
-             try:
-                 # --- Using rate_limited_get  ---
-                 response = rate_limited_get(url, timeout=30)
-
-                 if response.status_code == 200:
-                     data = response.json()
-                     items = data.get('message', {}).get('items', [])
-                     if items:
-                         publisher = items[0].get('publisher')
-                         issn_publisher_map[issn] = publisher
-                     # If no items, publisher remains None (already set)
-                 elif response.status_code == 404:
-                     # ISSN not found, publisher remains None
-                     pass
-                 elif response.status_code == 500:
-                     # Mark for retry, don't break inner loop yet to try others in batch
-                     batch_has_retryable_error = True
-                     batch_error_details.append(f"500 for ISSN {issn}")
-                 else:
-                     # Log other HTTP errors, but don't necessarily retry the whole batch
-                     print(f"        ISSN {issn}: HTTP {response.status_code}")
-                     # issn_publisher_map[issn] remains None
-
-             except requests.exceptions.Timeout:
-                 print(f"        ISSN {issn}: Timeout error (attempt {attempt + 1})")
-                 batch_has_retryable_error = True # Consider timeouts retryable
-                 batch_error_details.append(f"Timeout for ISSN {issn}")
-             except requests.exceptions.RequestException as e:
-                 print(f"        ISSN {issn}: Request error (attempt {attempt + 1}): {e}")
-                 # Decide if other request errors should trigger a batch retry
-                 # Let's retry for now, similar to 500s
-                 batch_has_retryable_error = True
-                 batch_error_details.append(f"Request error for ISSN {issn}: {e}")
-             except ValueError as e: # JSON decode error
-                 print(f"        ISSN {issn}: JSON decode error (attempt {attempt + 1}): {e}")
-                 # Not necessarily retryable for the whole batch, but let's be cautious
-                 batch_has_retryable_error = True
-                 batch_error_details.append(f"JSON error for ISSN {issn}: {e}")
-             except Exception as e:
-                 print(f"        ISSN {issn}: Unexpected error (attempt {attempt + 1}): {e}")
-                 # Not necessarily retryable for the whole batch, but let's be cautious
-                 batch_has_retryable_error = True
-                 batch_error_details.append(f"Unexpected error for ISSN {issn}: {e}")
-
-        # After processing all ISSNs in the batch for this attempt
-        if not batch_has_retryable_error:
-            # Success or non-retryable errors for all, exit retry loop
-            break
-        else:
-            # There were retryable errors
-            if attempt < MAX_RETRIES:
-                print(f"    ISSN Batch {issn_batch[:2]}...: Retryable errors occurred (attempt {attempt + 1}/{MAX_RETRIES + 1}). Details: {batch_error_details[:3]}... Retrying in {RETRY_DELAY}s...")
-                time.sleep(RETRY_DELAY)
-                # Continue to the next attempt in the retry loop
-            else:
-                print(f"    ISSN Batch {issn_batch[:2]}...: Max retries ({MAX_RETRIES}) exceeded. Errors: {batch_error_details[:3]}...")
-                # Exit retry loop, return map with Nones for failed ISSNs
-                break # Exit retry loop
-
-    return issn_publisher_map # Return the final map for this batch
-
-
-def get_publishers_concurrent_from_issn(missing_df: pd.DataFrame, email: str, max_workers: int = MAX_ISSN_WORKERS) -> List[Optional[str]]:
-    """
-    Retrieves publishers for a DataFrame missing publisher info using concurrent ISSN lookups (batched).
-
-    Args:
-        missing_df (pd.DataFrame): DataFrame containing rows missing publisher info.
-        email (str): Your email for polite API usage.
-        max_workers (int): Maximum number of concurrent threads for ISSN lookups.
-
-    Returns:
-        List[Optional[str]]: A list of publisher names corresponding to the rows in missing_df.
-    """
-    print(f"Attempting to retrieve publishers for {len(missing_df)} records using concurrent ISSN lookup...")
-    publishers = [None] * len(missing_df)
-
-    # Prepare list of valid ISSNs
-    issn_lookup_tasks = []
-
-    for idx_in_missing_df, (original_index, row) in enumerate(missing_df.iterrows()):
-        issn = row.get('ISSN')
-        if pd.notna(issn) and not (isinstance(issn, str) and issn.lower() in ('nan', '')):
-            if isinstance(issn, str):
-                issn_clean = issn.split(',')[0].strip()
-            else:
-                issn_clean = str(issn).strip()
-
-            if issn_clean and issn_clean.lower() not in ('nan', ''):
-                issn_lookup_tasks.append((idx_in_missing_df, issn_clean))
-
-    if not issn_lookup_tasks:
-         print("No valid ISSNs found for lookup.")
-         return publishers
-
-    # Extract unique ISSNs for querying
-    unique_issns = list(set(issn for _, issn in issn_lookup_tasks))
-    print(f"  Found {len(issn_lookup_tasks)} ISSNs, {len(unique_issns)} unique.")
-
-    # --- Create Batches of Unique ISSNs ---
-    # This is the key change: group unique ISSNs into batches
-    batches = [unique_issns[i:i + ISSN_BATCH_SIZE] for i in range(0, len(unique_issns), ISSN_BATCH_SIZE)]
-    print(f"  Processing {len(unique_issns)} unique ISSNs in {len(batches)} batches (size {ISSN_BATCH_SIZE}) using {max_workers} workers...")
-    # --- End of Batching ---
-
-    final_issn_publisher_map = {}
-
-    # Use tqdm for progress bar on unique ISSNs:
-    pbar = tqdm(total=len(batches), desc="Processing ISSN batches", unit="Batches")
-
+    # Step 2: Fetch all unique ISSNs concurrently
+    print(f"Fetching publishers for {len(unique_issns)} unique ISSNs...")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit batch jobs (each job processes a list of ISSNs)
-        future_to_batch = {executor.submit(query_crossref_issn_batch, batch, email): batch for batch in batches}
+        future_to_issn = {
+            executor.submit(fetch_publisher_by_issn, issn): issn for issn in unique_issns
+        }
+        for future in tqdm(as_completed(future_to_issn), total=len(unique_issns), desc="ISSN lookup"):
+            issn, publisher = future.result()
+            issn_to_publisher[issn] = publisher
 
-        # Collect results as they complete
-        for future in as_completed(future_to_batch):
-            batch = future_to_batch[future]
-            try:
-                batch_result = future.result() # This is the dict {issn: publisher, ...} for the batch
-                # Update the final map with results from this batch
-                final_issn_publisher_map.update(batch_result)
-                # Update progress bar - by number of batches or number of ISSNs in the batch?
-                # Per ISSN (uncomment below, comment above)
-                pbar.update(len(batch))
-            except Exception as exc:
-                print(f'\nISSN Batch {batch[:3]}... generated an exception: {exc}')
-                # Update progress bar for failed batch
-                pbar.update(len(batch)) # Or len(batch) if using Option 2 above
-                # Initialize ISSNs in this failed batch with None in final map
-                for issn in batch:
-                    if pd.notna(issn):
-                        final_issn_publisher_map[issn] = None
+    # Step 3: COLLECT ONLY TITLES THAT NEED FALLBACK
+    titles_needing_fallback: Set[str] = set()
 
-        pbar.close()
+    # Add titles for ISSNs that failed
+    for issn, publisher in issn_to_publisher.items():
+        if publisher is None and issn in issn_to_titles:
+            titles_needing_fallback.update(issn_to_titles[issn])
 
-    # Map the results back to the original positions in the 'publishers' list
-    # Create mapping from clean ISSN to list of positions (as before)
-    issn_to_positions = {}
-    for idx_in_result_list, clean_issn in issn_lookup_tasks:
-        if clean_issn not in issn_to_positions:
-            issn_to_positions[clean_issn] = []
-        issn_to_positions[clean_issn].append(idx_in_result_list)
+    # Add titles that had no ISSN to begin with
+    titles_needing_fallback.update(titles_with_no_issn)
 
-    # Assign publishers based on the final map
-    for issn_key, position_list in issn_to_positions.items():
-        publisher = final_issn_publisher_map.get(issn_key, None)
-        for position in position_list:
-            publishers[position] = publisher
-
-    print("ISSN lookup processing complete.")
-    return publishers
-
-def get_publishers_concurrent(doi_list: List[str], mailto: str, max_workers: int = MAX_WORKERS) -> Dict[str, Optional[str]]:
-    """
-    Retrieves publishers for a list of DOIs using concurrent batch queries.
-
-    Args:
-        doi_list (List[str]): The list of DOIs.
-        mailto (str): Your email for polite API usage.
-        max_workers (int): Maximum number of concurrent threads.
-
-    Returns:
-        Dict[str, Optional[str]]: A dictionary mapping input DOIs to publisher names.
-    """
-    if not doi_list:
-        return {}
-
-    # For mapping, a set is fine
-    unique_dois = list(set(doi for doi in doi_list if pd.notna(doi)))
-    if not unique_dois:
-        return {doi: None for doi in doi_list}
-
-    # Create batches
-    batches = [unique_dois[i:i + DOIS_PER_BATCH] for i in range(0, len(unique_dois), DOIS_PER_BATCH)]
-    print(f"Processing {len(unique_dois)} unique DOIs in {len(batches)} batches using {max_workers} workers...")
-
-    final_publisher_map = {}
-    
-    # tqdm
-    # Wrap the batches iterator and set the total for the progress bar
-    pbar = tqdm(total=len(unique_dois), desc="Processing DOIs", unit="DOI")
-
-    # Use ThreadPoolExecutor for concurrency
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all batch jobs
-        future_to_batch = {executor.submit(query_crossref_doi_batch, batch, mailto): batch for batch in batches}
-
-        # Collect results as they complete
-        for future in as_completed(future_to_batch):
-            batch = future_to_batch[future]
-            try:
-                batch_result = future.result()
-                # Update the final map with results from this batch
-                final_publisher_map.update(batch_result)
-                # Update the progress bar by the number of DOIs in the completed batch
-                pbar.update(len(batch))
-            except Exception as exc:
-                print(f'\nBatch {batch[:3]}... generated an exception: {exc}')
-                # Update progress bar even for failed batches
-                pbar.update(len(batch))
-                # Initialize DOIs in this failed batch with None
-                for doi in batch:
-                    if pd.notna(doi):
-                        final_publisher_map[doi] = None
-
-        # Close the progress bar
-        pbar.close()
-
-    # Ensure all original DOIs (including potential duplicates/NaNs) have an entry
-    # This map will primarily be used via .map() on the DataFrame 'DOI' column
-    full_map = {doi: final_publisher_map.get(doi, None) if pd.notna(doi) else None for doi in doi_list}
-    print("DOI batch processing complete.")
-    return full_map
-
-
-
-
-
-
-
-# --- Main Processing Function ---
-def process_publishers_concurrent(articles_df: pd.DataFrame, email: str) -> pd.DataFrame:
-    """Process publisher information using concurrent Crossref API queries and return updated DataFrame."""
-    print("Starting concurrent publisher processing...")
-    articles_df = articles_df.copy()
-    articles_df['publisher'] = None # Initialize publisher column
-
-    # --- Step 1: Get publishers using DOIs via Concurrent Crossref batch API ---
-    if 'DOI' not in articles_df.columns:
-        print("Warning: 'DOI' column not found. Skipping Crossref DOI lookup.")
-        missing_df = articles_df
+    # Step 4: Fetch ONLY those titles (if any)
+    if titles_needing_fallback:
+        print(f"Fetching publishers for {len(titles_needing_fallback)} titles (ISSN lookup failed)...")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_title = {
+                executor.submit(fetch_publisher_by_title, title): title for title in titles_needing_fallback
+            }
+            for future in tqdm(as_completed(future_to_title), total=len(titles_needing_fallback), desc="Title lookup"):
+                title, publisher = future.result()
+                title_to_publisher[title] = publisher
     else:
-        dois = articles_df['DOI'].tolist()
+        print("No titles need fallback — all publishers found via ISSN.")
 
-        # Get the publisher mapping using concurrency
-        doi_to_publisher_full_map = get_publishers_concurrent(dois, email, MAX_WORKERS)
+    # Step 5: Map back to full DataFrame
+    print("Mapping results back to DataFrame...")
+    publishers = []
+    for _, row in df.iterrows():
+        issn = row.get("ISSN")
+        title = row.get("Journal Title")
+        publisher = None
 
-        # Map publishers back to the DataFrame using the original DOI list order
-        # .map() is efficient for this
-        articles_df['publisher'] = articles_df['DOI'].map(doi_to_publisher_full_map)
+        # Try ISSN first
+        if isinstance(issn, str) and issn in issn_to_publisher:
+            publisher = issn_to_publisher[issn]
+        # Fallback to title ONLY if needed
+        if not publisher and isinstance(title, str):
+            publisher = title_to_publisher.get(title)  # Use .get()
 
-        # Identify rows where publisher is still missing after DOI lookup
-        missing_df = articles_df[articles_df['publisher'].isnull() | (articles_df['publisher'] == '')]
-        # Also consider rows where DOI was NaN
-        missing_df = pd.concat([missing_df, articles_df[articles_df['DOI'].isnull()]], ignore_index=False).drop_duplicates()
+        publishers.append(publisher)
 
-    # --- Step 2: Use (ISSN) for missing publishers ---
-    if not missing_df.empty:
-        print(f"Found {len(missing_df)} records missing publisher info after DOI lookup. Attempting concurrent ISSN lookup...")
-        # Use the NEW concurrent ISSN-based lookup function
-        publisher_ids_from_issn = get_publishers_concurrent_from_issn(missing_df, email, MAX_ISSN_WORKERS)
-
-        # Create a temporary DataFrame to hold the new publisher data for missing entries
-        temp_missing_df = missing_df.reset_index(drop=False) # Keep original index as a column
-        original_index_name = temp_missing_df.columns[0] if len(temp_missing_df.columns) > 0 else 'index'
-        temp_missing_df['publisher_from_issn'] = publisher_ids_from_issn
-
-        # Update the original DataFrame using the original index
-        articles_df = articles_df.merge(
-            temp_missing_df[['publisher_from_issn']], # Select only the new publisher column and the index
-            left_index=True,
-            right_index=True, # Merge on the original index (which was kept in the temp df)
-            how='left'
-        )
-        # Fill the original 'publisher' column with values from 'publisher_from_issn' where 'publisher' is null
-        articles_df['publisher'] = articles_df['publisher'].fillna(articles_df['publisher_from_issn'])
-        # Drop the temporary column
-        articles_df.drop(columns=['publisher_from_issn'], inplace=True)
-
-        # --- Generate Filename with Date ---
-        # Get today's date
-        today_str = datetime.today().strftime('%Y-%m-%d') # Formats date as YYYY-MM-DD
-        # Create the output filename
-        output_filename = f"{today_str}_metawithPublisher.csv"
-
-
-        # Save the result df to the dated CSV file
-        print(f"Saving results to '{output_filename}'...")
-        articles_df.to_csv(output_filename, index=False)
-
-
-    print("Concurrent publisher processing complete.")
-    return articles_df
-
+    df = df.copy()
+    df["Publisher"] = publishers
+    return df
 ############################################################################### ##########################################################################################################
 ############################################################################### Doenload PMC ##########################################################################################################
 
