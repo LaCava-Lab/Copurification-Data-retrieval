@@ -16,6 +16,7 @@ from Bio import Entrez
 from eutils import EutilsNCBIError, EutilsRequestError
 from datetime import datetime
 from tqdm.auto import tqdm
+from urllib.parse import urlparse, parse_qs
 #Import DR module from Functions folder
 from Functions import DataRetrieval as DR
 
@@ -761,7 +762,7 @@ def add_publishers(df: pd.DataFrame, email: str, max_workers: int = 5) -> pd.Dat
     df["Publisher"] = publishers
     return df
 ############################################################################### ##########################################################################################################
-############################################################################### Doenload PMC ##########################################################################################################
+############################################################################### Download PMC     #########################################################################################################################
 
 def download_pmc_articles(oa_pmcids, output_dir='./Full_text_jsons'):
     """
@@ -1321,7 +1322,6 @@ def fetch_chunk_metadata(pmid_chunk: List[str]) -> pd.DataFrame:
                     # --- Separate Fields for MH, OT, NM, RN ---
                     mesh_terms = article.get("MH", None)
                     other_terms = article.get("OT", None)
-                    substance_names = article.get("NM", None)
 
                     # Clean RN: extract text inside parentheses
                     registry_numbers_cleaned = []
@@ -1351,7 +1351,6 @@ def fetch_chunk_metadata(pmid_chunk: List[str]) -> pd.DataFrame:
                         # Individual term lists
                         "MeSH Terms (MH)": mesh_terms,
                         "Other Terms (OT)": other_terms,
-                        "Substance Names (NM)": substance_names,
                         "Registry Numbers (RN)": registry_numbers_cleaned 
                     }
 
@@ -1401,7 +1400,7 @@ def fetch_parse_pubmed_metadata(pmid_list: List[str]) -> pd.DataFrame:
     # 2. Divide into chunks (e.g., 9000 PMIDs per chunk)
     chunk_size_for_epost = 9999
     pmid_chunks = list(chunk_list(unique_pmid_list, chunk_size_for_epost))
-    logging.info(f"Divided {len(unique_pmid_list)} PMIDs into {len(pmid_chunks)} chunks of max {chunk_size_for_epost}.")
+    logging.info(f"Devided {len(unique_pmid_list)} PMIDs into {len(pmid_chunks)} chunks of max {chunk_size_for_epost}.")
 
     all_results = []
     max_workers = 8 # Adjust based on your API key limit
@@ -1479,7 +1478,7 @@ def save_pubmed_xml(pmids: List[str], output_dir: str):
 
 ####################################################            ################################################################
 #################################################### Intact and Corrum data processing  ####################################################
-def add_intact_corrum(df, pos_file="intact.txt", neg_file="intact_negative.txt"):
+def add_intact_corrum(df, pos_file="intact.txt", neg_file="intact_negative.txt", cor="corum_5_1_20250712.txt"):
     """
     Process IntAct and Corrum database files to identify positive and negative papers,
     and classify papers in metadata.
@@ -1513,6 +1512,8 @@ def add_intact_corrum(df, pos_file="intact.txt", neg_file="intact_negative.txt")
     print(f"Of the negative papers, {shared_count} are shared in the positives")
     # Convert sets to lists for isin()
     all_intact_pmids = list(n.union(p))
+    df["PMID"] = df["PMID"].astype(str)
+    all_intact_pmids = {str(x) for x in all_intact_pmids} 
     df["intact"] = df["PMID"].isin(all_intact_pmids).astype(int)
     # Classify papers in metadata
     int_positives = df[df['intact'] == 1]
@@ -1521,7 +1522,9 @@ def add_intact_corrum(df, pos_file="intact.txt", neg_file="intact_negative.txt")
     print(f"Intact Unknown papers: {len(int_unknowns)}")
 
     # Load Corum data
-    c=[str(i) for i in set(cor["pmid"])]
+    # Load Corum data
+    cor_df = pd.read_csv(cor, sep="\t")  # Load the file into a DataFrame
+    c = [str(i) for i in set(cor_df["pmid"])]  # Extract and convert pmid column
     df["corrum"] = df["PMID"].isin(c).astype(int)
     # Classify papers in metadata
     cor_positives = df[df['corrum'] == 1]
@@ -1531,6 +1534,7 @@ def add_intact_corrum(df, pos_file="intact.txt", neg_file="intact_negative.txt")
     
     # Return results
     return df
+
 
 
 def add_complex_portal(input_dir: str, data: pd.DataFrame) -> pd.DataFrame:
@@ -1629,7 +1633,7 @@ def download_google_sheet_as_df(google_url: str, local_path: str = None) -> pd.D
 def flag_predatory_publications(
     data: pd.DataFrame,
     journal_col: str = "Journal Title",
-    publisher_col: str = "publisher",
+    publisher_col: str = "Publisher",
     bealls_journals_path: str = "./Predatory_publishers/bealls_journals.txt",
     bealls_publishers_path: str = "./Predatory_publishers/bealls_publishers.txt",
     list_download: str = 'y',
