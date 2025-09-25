@@ -43,7 +43,6 @@ import urllib.parse
 from time import sleep
 from tqdm import tqdm  
 from datetime import datetime, timedelta, date
-import matplotlib.pyplot as plt
 from functools import partial
 from tenacity import retry, stop_after_delay, wait_fixed, retry_if_exception_type, stop_after_attempt, wait_exponential
 from multiprocessing.pool import ThreadPool
@@ -356,67 +355,9 @@ def read_query_from_file(filename):
         logging.error(f"Error reading query file {filename}: {e}")
         return None
 
-def plot_density_over_time(batch_metadata):
-    """
-    Plots the number of papers published per year based on batch metadata.
-    Expects batch_metadata to be a list of dictionaries with keys 'start', 'end', 'count'.
-    'start' and 'end' should be datetime.date objects.
-    """
-    import matplotlib.pyplot as plt
-    from collections import defaultdict
-
-    if not batch_metadata:
-        print("No batch metadata to plot.")
-        return
-
-    # Dictionary to accumulate paper counts per year
-    yearly_counts = defaultdict(int)
-
-    # Iterate over the list of dictionaries
-    for item in batch_metadata:
-        try:
-            start_date = item["start"]  # Access the date object
-            count = item["count"]
-            # Ensure start_date is a date object before accessing .year
-            if isinstance(start_date, date):
-                year = start_date.year
-                yearly_counts[year] += count
-            else:
-                 logging.warning(f"Invalid start date type in metadata item: {item}")
-        except KeyError as e:
-             logging.error(f"Missing key in batch metadata item: {e} in {item}")
-        except Exception as e:
-             logging.error(f"Error processing batch metadata item {item}: {e}")
-
-    if not yearly_counts:
-        print("No valid yearly counts to plot.")
-        return
-
-    # Sort years for plotting
-    years = sorted(yearly_counts.keys())
-    counts = [yearly_counts[year] for year in years]
-
-    # Create the plot
-    plt.figure(figsize=(12, 6))
-    bars = plt.bar(years, counts, color='skyblue', edgecolor='black')
-    plt.title("estimated number of Papers Published Per Year")
-    plt.xlabel("Year")
-    plt.ylabel("Number of Papers")
-    plt.grid(axis='y', linestyle='--', alpha=0.7)
 
 
-    for bar in bars:
-        height = bar.get_height()
-        plt.text(bar.get_x() + bar.get_width()/2., height,
-                 f'{int(height)}', ha='center', va='bottom', fontsize=8)
-
-    plt.xticks(years, rotation=45)
-    plt.tight_layout()
-    plt.savefig(f"pmid_trend_{date.today().strftime('%Y%m%d')}.png", dpi=300, bbox_inches='tight')
-
-
-
-def fetch_pmids_over_period(query_file, start, stop, full_text=False, plot=True, max_workers=4):
+def fetch_pmids_over_period(query_file, start, stop, full_text=False, max_workers=4):
     """
     Fetch PMIDs over a specified time period
     """
@@ -470,21 +411,6 @@ def fetch_pmids_over_period(query_file, start, stop, full_text=False, plot=True,
         max_workers=max_workers,
     )
     
-    # Plot if requested
-    if plot and date_batches:
-        # Prepare metadata for plotting (list of dicts)
-        batch_metadata_preview = [
-            {
-                "start": start_date_obj,  # Keep as date object
-                "end": end_date_obj,      # Keep as date object
-                "count": count            # Use the precomputed count
-            }
-            for start_date_obj, end_date_obj, count in date_batches 
-        ]
-        print('Plotting the density of papers over time....')
-        plot_density_over_time(batch_metadata_preview)
-    elif plot:
-        print("No batches generated, skipping plot.")
 
     # Fetch PMIDs in parallel
     print('Fetching the list of PMIDs....')
