@@ -42,7 +42,6 @@ def main():
     email = input("Enter your email for NCBI Entrez: ").strip()
     Entrez.email = email
 
-    plot_choice = input("Do you want to plot the PMID trend? Press Enter to continue or type 'skip' to skip this step: ").strip().lower()
     oa_choice = input("Do you want to flag Open-Access articles? Press Enter to continue or type 'skip' to skip this step: ").strip().lower()
 
     predatory_choice = input("Do you want to flag suspected predatory papers? skin self hating are commin ").strip().lower() or None
@@ -57,14 +56,12 @@ def main():
     # === Step 2: Run functions conditionally ===
 
     # Fetch PMIDs
-    plot = plot_choice != 'skip'
     print("Fetching PMIDs...")
     pmid_list = DR.fetch_pmids_over_period(
         query_file=query_file,
         start=start_date,
         stop=stop_date or None,
-        plot=plot,
-        full_text=False,
+        full_text=False
     )
 
     # Fetch and parse metadata
@@ -75,7 +72,7 @@ def main():
     
     # Process publishers
     print("Processing publishers...")
-    data = DR.process_publishers_concurrent(data, email)
+    data = DR.add_publishers(data, email)
     
 
     # flag papers of sus predatory journals or publishers 
