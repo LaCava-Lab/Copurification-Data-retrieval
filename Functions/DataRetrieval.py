@@ -357,51 +357,46 @@ def read_query_from_file(filename):
 
 
 
-def fetch_pmids_over_period(query_file, start, stop, full_text=False, max_workers=4):
+def fetch_pmids_over_period(query_file, start=None, stop=None, full_text=False, max_workers=4):
     """
-    Fetch PMIDs over a specified time period
+    Fetch PMIDs over a specified time period.
+    If start/stop are not provided, defaults to 1820-01-01 to today.
     """
-    # Initialize date variables
-    start_date = None
-    stop_date = None
-    
     # Read query from file
     try:
-        with open(query_file, 'r') as f:
+        with open(query_file, 'r', encoding='utf-8') as f:
             query = f.read().strip()
     except Exception as e:
         logging.error(f"Error reading query file: {e}")
         return []
+
     full_count = get_pubmed_count(query)
-    print(f'Total results from the query is {full_count}, will start fetching PMIDs....')    # Parse dates
+    print(f'Total results from the query is {full_count}, will start fetching PMIDs....')
+
+    # Set default dates if not provided
     try:
         if start is None:
-            start_date = date(2010, 1, 1)
+            start_date = date.fromisoformat("1820-01-01")
         else:
             start_date = date.fromisoformat(start)
-        
+
         if stop is None:
             stop_date = date.today()
         else:
             stop_date = date.fromisoformat(stop)
-            
+
         if start_date > stop_date:
             logging.error(f"Start date ({start_date}) cannot be after stop date ({stop_date})")
             return []
-            
+
     except ValueError as e:
         logging.error(f"Invalid date format. Expected YYYY-MM-DD: {e}")
         return []
     except Exception as e:
         logging.error(f"Unexpected error parsing dates: {e}")
         return []
-    
-    # Check that dates were successfully set
-    if start_date is None or stop_date is None:
-        logging.error("Failed to parse dates")
-        return []
-    
-    # Continue with your function...
+
+    # Generate patches
     print("Generating date batches...")
     date_batches = generate_date_batches(
         query=query,
@@ -410,7 +405,6 @@ def fetch_pmids_over_period(query_file, start, stop, full_text=False, max_worker
         full_text=full_text,
         max_workers=max_workers,
     )
-    
 
     # Fetch PMIDs in parallel
     print('Fetching the list of PMIDs....')
@@ -425,7 +419,7 @@ def fetch_pmids_over_period(query_file, start, stop, full_text=False, max_worker
         max_workers=max_workers
     )
 
-    # Remove duplicates from the final list
+    # Remove duplicates
     unique_pmid_list = list(set(pmid_list))
     print(f'Total unique PMIDs fetched: {len(unique_pmid_list)}')
 
@@ -434,11 +428,11 @@ def fetch_pmids_over_period(query_file, start, stop, full_text=False, max_worker
     for meta in batch_metadata:
         print(f"  {meta['start']} to {meta['end']}: {meta['count']} papers")
 
-    # Save PMIDs to file
+    # Save to file
     today_str = date.today().strftime("%d_%m_%Y")
     filename = f'pmid_list_{today_str}.txt'
     try:
-        with open(filename, 'w') as file:
+        with open(filename, 'w', encoding='utf-8') as file:
             for pmid in unique_pmid_list:
                 file.write(f"{pmid}\n")
         print(f'PMID list saved to {filename}')
@@ -446,7 +440,6 @@ def fetch_pmids_over_period(query_file, start, stop, full_text=False, max_worker
         logging.error(f"Error saving PMIDs to file {filename}: {e}")
 
     return unique_pmid_list
-
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
