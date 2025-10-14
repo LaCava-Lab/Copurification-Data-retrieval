@@ -1,0 +1,8 @@
+metapub==0.5.12
+numpy==1.26.4
+pandas==2.3.0
+requests==2.32.4
+tqdm==4.67.1
+python-dateutil==2.9.0
+tenacity==9.1.2
+eutils==0.6.0
